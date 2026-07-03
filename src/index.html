@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TT Translator</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="window-drag-strip" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>TT</h1>
+          <p id="status">Ready</p>
+        </div>
+        <div class="top-actions">
+          <button id="pasteInput" class="icon-button" title="读取剪贴板">⌘V</button>
+          <button id="translateNow" class="primary-button">翻译</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <label class="pane">
+          <span>原文</span>
+          <textarea id="sourceText" spellcheck="false" placeholder="输入或复制文本，自动判断中译英 / 英译中"></textarea>
+        </label>
+
+        <label class="pane">
+          <span>译文</span>
+          <textarea id="resultText" spellcheck="false" readonly placeholder="翻译结果会出现在这里"></textarea>
+        </label>
+      </section>
+
+      <footer class="controls">
+        <button id="copyResult">复制</button>
+        <button id="pasteResult">粘贴到前台</button>
+        <button id="swapText">交换</button>
+        <button id="clearText">清空</button>
+      </footer>
+
+      <section class="settings">
+        <details>
+          <summary>模型设置</summary>
+          <div class="settings-grid">
+            <label>
+              <span>Base URL</span>
+              <input id="baseUrl" type="url" autocomplete="off" />
+            </label>
+            <label>
+              <span>API Key</span>
+              <input id="apiKey" type="password" autocomplete="off" />
+            </label>
+            <label>
+              <span>Model</span>
+              <input id="model" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>Temperature</span>
+              <input id="temperature" type="number" min="0" max="2" step="0.1" />
+            </label>
+            <label>
+              <span>Top P</span>
+              <input id="topP" type="number" min="0" max="1" step="0.05" />
+            </label>
+            <label>
+              <span>Max Tokens</span>
+              <input id="maxTokens" type="number" min="1" max="32768" step="256" />
+            </label>
+            <label>
+              <span>防抖 ms</span>
+              <input id="debounceMs" type="number" min="150" max="5000" step="50" />
+            </label>
+          </div>
+        </details>
+
+        <div class="toggles">
+          <label><input id="autoTranslate" type="checkbox" /> 自动翻译</label>
+          <label><input id="watchClipboard" type="checkbox" /> 监听剪贴板</label>
+          <label><input id="autoCopy" type="checkbox" /> 自动复制</label>
+          <label><input id="autoPaste" type="checkbox" /> 自动粘贴</label>
+          <label><input id="alwaysOnTop" type="checkbox" /> 置顶</label>
+        </div>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

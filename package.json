@@ -1,0 +1,44 @@
+{
+  "name": "tt",
+  "version": "0.1.0",
+  "description": "Minimal always-on-top macOS bilingual translator powered by an OpenAI-compatible LLM endpoint.",
+  "main": "src/main.js",
+  "scripts": {
+    "prepare-electron": "node scripts/prepare-electron.js",
+    "predev": "npm run prepare-electron",
+    "dev": "electron .",
+    "prestart": "npm run prepare-electron",
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer.js",
+    "predist": "npm run prepare-electron",
+    "dist": "electron-builder --mac"
+  },
+  "keywords": [
+    "electron",
+    "translator",
+    "macos",
+    "llm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "43.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "local.tt.translator",
+    "productName": "TT Translator",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ]
+  }
+}
