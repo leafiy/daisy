@@ -20,6 +20,8 @@ public struct AppSettings: Codable, Equatable {
     public var autoCopy: Bool
     public var autoPaste: Bool
     public var alwaysOnTop: Bool
+    public var quickTranslateEnabled: Bool
+    public var quickTranslateShortcut: String
 
     public init(
         baseURL: String,
@@ -34,12 +36,16 @@ public struct AppSettings: Codable, Equatable {
         autoCopy: Bool,
         autoPaste: Bool,
         alwaysOnTop: Bool,
+        quickTranslateEnabled: Bool = false,
+        quickTranslateShortcut: String = "Command+Shift+V",
         provider: ModelProvider = .openAICompatible
     ) {
         self.provider = provider
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
+        self.quickTranslateEnabled = quickTranslateEnabled
+        self.quickTranslateShortcut = quickTranslateShortcut
         self.temperature = temperature
         self.topP = topP
         self.maxTokens = maxTokens
@@ -66,6 +72,8 @@ public struct AppSettings: Codable, Equatable {
             autoCopy: true,
             autoPaste: false,
             alwaysOnTop: true,
+            quickTranslateEnabled: false,
+            quickTranslateShortcut: "Command+Shift+V",
             provider: provider
         )
     }
@@ -106,6 +114,8 @@ public struct AppSettings: Codable, Equatable {
         case autoCopy
         case autoPaste
         case alwaysOnTop
+        case quickTranslateEnabled
+        case quickTranslateShortcut
     }
 
     public init(from decoder: Decoder) throws {
@@ -124,5 +134,7 @@ public struct AppSettings: Codable, Equatable {
         autoCopy = try container.decodeIfPresent(Bool.self, forKey: .autoCopy) ?? defaults.autoCopy
         autoPaste = try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? defaults.autoPaste
         alwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? defaults.alwaysOnTop
+        quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
+        quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut
     }
 }

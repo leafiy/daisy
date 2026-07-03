@@ -4,7 +4,7 @@ import Foundation
 final class HotKeyCenter {
     enum HotKey: UInt32 {
         case translateClipboard = 1
-        case pasteResult = 2
+        case quickTranslateClipboard = 2
         case toggleAlwaysOnTop = 3
     }
 
@@ -14,7 +14,7 @@ final class HotKeyCenter {
     private var hotKeyRefs: [EventHotKeyRef] = []
     private var handlerUPP: EventHandlerUPP?
 
-    func register() {
+    func register(quickTranslateEnabled: Bool, quickTranslateShortcut: String) {
         unregister()
 
         handlerUPP = { _, event, userData in
@@ -51,8 +51,10 @@ final class HotKeyCenter {
         )
 
         register(keyCode: UInt32(kVK_ANSI_T), modifiers: cmdKey | shiftKey, id: .translateClipboard)
-        register(keyCode: UInt32(kVK_ANSI_V), modifiers: cmdKey | shiftKey, id: .pasteResult)
         register(keyCode: UInt32(kVK_ANSI_O), modifiers: cmdKey | shiftKey, id: .toggleAlwaysOnTop)
+        if quickTranslateEnabled, let shortcut = Self.parseShortcut(quickTranslateShortcut) {
+            register(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, id: .quickTranslateClipboard)
+        }
     }
 
     func unregister() {
@@ -68,9 +70,13 @@ final class HotKeyCenter {
         handlerUPP = nil
     }
 
+    static func isShortcutSupported(_ shortcut: String) -> Bool {
+        parseShortcut(shortcut) != nil
+    }
+
     private func register(keyCode: UInt32, modifiers: Int, id: HotKey) {
         var hotKeyRef: EventHotKeyRef?
-        var hotKeyID = EventHotKeyID(signature: fourCharacterCode("TTTR"), id: id.rawValue)
+        let hotKeyID = EventHotKeyID(signature: fourCharacterCode("TTTR"), id: id.rawValue)
         let status = RegisterEventHotKey(
             keyCode,
             UInt32(modifiers),
@@ -86,6 +92,56 @@ final class HotKeyCenter {
 
     private func fourCharacterCode(_ string: String) -> OSType {
         string.utf8.reduce(0) { ($0 << 8) + OSType($1) }
+    }
+
+    private static func parseShortcut(_ shortcut: String) -> (keyCode: UInt32, modifiers: Int)? {
+        let tokens = shortcut
+            .replacingOccurrences(of: "⌘", with: "Command+")
+            .replacingOccurrences(of: "⇧", with: "Shift+")
+            .replacingOccurrences(of: "⌥", with: "Option+")
+            .replacingOccurrences(of: "⌃", with: "Control+")
+            .split(separator: "+")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+
+        guard !tokens.isEmpty else { return nil }
+
+        var modifiers = 0
+        var keyToken: String?
+        for token in tokens {
+            switch token {
+            case "command", "cmd", "commandorcontrol":
+                modifiers |= cmdKey
+            case "shift":
+                modifiers |= shiftKey
+            case "option", "alt":
+                modifiers |= optionKey
+            case "control", "ctrl":
+                modifiers |= controlKey
+            default:
+                guard keyToken == nil else { return nil }
+                keyToken = token
+            }
+        }
+
+        guard modifiers != 0, let keyToken, let keyCode = keyCode(for: keyToken) else { return nil }
+        return (UInt32(keyCode), modifiers)
+    }
+
+    private static func keyCode(for token: String) -> Int? {
+        let letters: [String: Int] = [
+            "a": kVK_ANSI_A, "b": kVK_ANSI_B, "c": kVK_ANSI_C, "d": kVK_ANSI_D,
+            "e": kVK_ANSI_E, "f": kVK_ANSI_F, "g": kVK_ANSI_G, "h": kVK_ANSI_H,
+            "i": kVK_ANSI_I, "j": kVK_ANSI_J, "k": kVK_ANSI_K, "l": kVK_ANSI_L,
+            "m": kVK_ANSI_M, "n": kVK_ANSI_N, "o": kVK_ANSI_O, "p": kVK_ANSI_P,
+            "q": kVK_ANSI_Q, "r": kVK_ANSI_R, "s": kVK_ANSI_S, "t": kVK_ANSI_T,
+            "u": kVK_ANSI_U, "v": kVK_ANSI_V, "w": kVK_ANSI_W, "x": kVK_ANSI_X,
+            "y": kVK_ANSI_Y, "z": kVK_ANSI_Z,
+            "0": kVK_ANSI_0, "1": kVK_ANSI_1, "2": kVK_ANSI_2, "3": kVK_ANSI_3,
+            "4": kVK_ANSI_4, "5": kVK_ANSI_5, "6": kVK_ANSI_6, "7": kVK_ANSI_7,
+            "8": kVK_ANSI_8, "9": kVK_ANSI_9
+        ]
+        return letters[token]
     }
 
     deinit {

@@ -42,11 +42,14 @@ final class TranslationCoreTests: XCTestCase {
         }
     }
 
-    func testDetectTargetLanguageChoosesChineseForEnglishAndEnglishForChinese() {
+    func testDetectTargetLanguageUsesEnglishOnlyForChineseAndSimplifiedChineseForNonChinese() {
         let cases: [(name: String, source: String, expected: String)] = [
+            (name: "Chinese Han text without kana or Hangul targets English", source: "今天发布版本说明。", expected: "English"),
+            (name: "Chinese mixed with English identifiers still targets English", source: "Translate API 响应", expected: "English"),
             (name: "English input targets Simplified Chinese", source: "Ship the release notes today.", expected: "Simplified Chinese"),
-            (name: "Chinese input targets English", source: "今天发布版本说明。", expected: "English"),
-            (name: "mixed input with any Han character targets English", source: "Translate API 响应", expected: "English")
+            (name: "Japanese kana and kanji input targets Simplified Chinese", source: "設定を保存しました。", expected: "Simplified Chinese"),
+            (name: "Korean Hangul input targets Simplified Chinese", source: "릴리스 노트를 게시하세요.", expected: "Simplified Chinese"),
+            (name: "Spanish input targets Simplified Chinese", source: "Publica las notas de la versión hoy.", expected: "Simplified Chinese")
         ]
 
         for testCase in cases {
@@ -110,8 +113,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertNil(json["maxTokens"])
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"])
-        XCTAssertEqual(messages.last?["content"], "Target language: English\n\nText:\nHello, 世界")
+        assertTranslationMessages(messages, targetLanguage: "English", source: "Hello, 世界")
     }
 
     func testMakeRequestBuildsDeepSeekOpenAICompatibleEndpointHeadersAndJSONBody() throws {
@@ -149,8 +151,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertNil(json["options"])
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"])
-        XCTAssertEqual(messages.last?["content"], "Target language: Simplified Chinese\n\nText:\nShip it")
+        assertTranslationMessages(messages, targetLanguage: "Simplified Chinese", source: "Ship it")
     }
 
     func testMakeRequestBuildsOllamaChatEndpointBodyAndOptions() throws {
@@ -192,8 +193,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(options["num_predict"] as? Int, 256)
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"])
-        XCTAssertEqual(messages.last?["content"], "Target language: English\n\nText:\n你好")
+        assertTranslationMessages(messages, targetLanguage: "English", source: "你好")
     }
 
     func testMakeRequestOmitsAuthorizationHeaderWhenAPIKeyIsBlank() throws {
@@ -216,5 +216,33 @@ final class TranslationCoreTests: XCTestCase {
         let request = try TranslationService.makeRequest(source: "Hello", settings: settings)
 
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    private func assertTranslationMessages(
+        _ messages: [[String: String]],
+        targetLanguage: String,
+        source: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"], file: file, line: line)
+
+        let systemContent = messages.first?["content"]
+        XCTAssertTrue(
+            systemContent?.contains("Choose the target language strictly by this rule: if the source contains Chinese text, translate the natural-language content into English; otherwise translate the natural-language content into Simplified Chinese.") == true,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            systemContent?.contains("Never translate Chinese into Chinese, and never translate non-Chinese text into English.") == true,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            messages.last?["content"],
+            "Target language: \(targetLanguage)\nRule: Chinese source -> English only; non-Chinese source -> Simplified Chinese only.\n\nText:\n\(source)",
+            file: file,
+            line: line
+        )
     }
 }

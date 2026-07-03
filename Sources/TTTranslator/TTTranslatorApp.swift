@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings = AppSettings.defaults()
     private var clipboardTimer: Timer?
     private var lastClipboardText = ""
+    private var clipboardShortcutTask: Task<Void, Never>?
+    private var toastWindow: NSWindow?
+    private var activeTranslationCount = 0
+    private var isClipboardWatcherPaused = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         settings = settingsStore.load()
@@ -45,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
+        clipboardShortcutTask?.cancel()
+        toastWindow?.orderOut(nil)
         hotKeyCenter.unregister()
     }
 
@@ -59,10 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pasteboardService: pasteboardService,
             onSettingsChanged: { [weak self] nextSettings in
                 self?.saveSettings(nextSettings)
+            },
+            onTranslationActivityChanged: { [weak self] isActive in
+                self?.setTranslationInProgress(isActive)
             }
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -70,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "TT Translator"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.minSize = NSSize(width: 520, height: 680)
+        window.minSize = NSSize(width: 500, height: 460)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         window.center()
@@ -86,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try settingsStore.save(nextSettings)
             applyWindowBehavior()
             updateClipboardWatcher()
+            registerHotKeys()
             viewController?.render(settings: nextSettings)
             rebuildStatusMenu()
         } catch {
@@ -113,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard !self.isClipboardWatcherPaused else { return }
                 let current = self.pasteboardService.readText()
                 guard !current.isEmpty,
                       current != self.lastClipboardText,
@@ -125,21 +136,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func setTranslationInProgress(_ isActive: Bool) {
+        if isActive {
+            activeTranslationCount += 1
+            isClipboardWatcherPaused = true
+            return
+        }
+
+        activeTranslationCount = max(0, activeTranslationCount - 1)
+        if activeTranslationCount == 0 {
+            isClipboardWatcherPaused = false
+            lastClipboardText = pasteboardService.readText()
+        }
+    }
+
     private func registerHotKeys() {
         hotKeyCenter.onHotKey = { [weak self] hotKey in
             guard let self else { return }
             switch hotKey {
             case .translateClipboard:
                 self.viewController?.pullClipboardAndTranslate()
-            case .pasteResult:
-                self.viewController?.pasteResult()
+            case .quickTranslateClipboard:
+                self.translateClipboardAndCopyWithoutWindow()
             case .toggleAlwaysOnTop:
                 var next = self.settings
                 next.alwaysOnTop.toggle()
                 self.saveSettings(next)
             }
         }
-        hotKeyCenter.register()
+        hotKeyCenter.register(
+            quickTranslateEnabled: settings.quickTranslateEnabled,
+            quickTranslateShortcut: settings.quickTranslateShortcut
+        )
     }
 
     private func createMenu() {
@@ -199,11 +227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(menuItem(title: window?.isVisible == true ? "隐藏窗口" : "显示窗口", action: #selector(toggleWindowFromStatusMenu)))
         menu.addItem(.separator())
-        menu.addItem(menuItem(title: "读取剪贴板并翻译", action: #selector(translateClipboardFromStatusMenu)))
+        menu.addItem(menuItem(title: "读取剪贴板翻译并复制", action: #selector(translateClipboardFromStatusMenu)))
         menu.addItem(menuItem(title: "粘贴当前译文", action: #selector(pasteResultFromStatusMenu)))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "模型接口设置…", action: #selector(openModelSettingsFromStatusMenu)))
         menu.addItem(.separator())
+        menu.addItem(settingItem(title: "快捷翻译", enabled: settings.quickTranslateEnabled, action: #selector(toggleQuickTranslateFromStatusMenu)))
+        menu.addItem(menuItem(title: "快捷翻译快捷键：\(settings.quickTranslateShortcut)", action: #selector(openQuickTranslateShortcutFromStatusMenu)))
         menu.addItem(settingItem(title: "自动翻译", enabled: settings.autoTranslate, action: #selector(toggleAutoTranslateFromStatusMenu)))
         menu.addItem(settingItem(title: "监听剪贴板", enabled: settings.watchClipboard, action: #selector(toggleWatchClipboardFromStatusMenu)))
         menu.addItem(settingItem(title: "自动复制", enabled: settings.autoCopy, action: #selector(toggleAutoCopyFromStatusMenu)))
@@ -237,11 +267,153 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func translateClipboardFromStatusMenu() {
-        viewController?.pullClipboardAndTranslate()
+        translateClipboardAndCopyWithoutWindow()
     }
 
     @objc private func pasteResultFromStatusMenu() {
         viewController?.pasteResult()
+    }
+
+    private func translateClipboardAndCopyWithoutWindow() {
+        let text = pasteboardService.readText().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            showToast("剪贴板为空")
+            return
+        }
+
+        clipboardShortcutTask?.cancel()
+        showToast("翻译中…")
+        let settingsSnapshot = settings
+        clipboardShortcutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.setTranslationInProgress(true)
+            defer { self.setTranslationInProgress(false) }
+            do {
+                let translated = try await self.translationService.translate(text, settings: settingsSnapshot)
+                guard !Task.isCancelled else { return }
+                self.pasteboardService.writeText(translated)
+                self.showToast("已翻译并复制")
+            } catch {
+                guard !Task.isCancelled else { return }
+                let message = String(error.localizedDescription.prefix(40))
+                self.showToast("翻译失败：\(message)")
+            }
+        }
+    }
+
+    private func showToast(_ message: String) {
+        toastWindow?.orderOut(nil)
+
+        let width = min(max(CGFloat(message.count * 9 + 44), 160), 420)
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 44),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.level = .statusBar
+        panel.ignoresMouseEvents = true
+
+        let background = NSView()
+        background.translatesAutoresizingMaskIntoConstraints = false
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 12
+        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
+
+        let label = NSTextField(labelWithString: message)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .white
+        label.lineBreakMode = .byTruncatingTail
+
+        panel.contentView = background
+        background.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 18),
+            label.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -18),
+            label.centerYAnchor.constraint(equalTo: background.centerYAnchor)
+        ])
+
+        if let frame = NSScreen.main?.visibleFrame {
+            panel.setFrameOrigin(NSPoint(x: frame.maxX - width - 24, y: frame.maxY - 64))
+        }
+
+        panel.orderFrontRegardless()
+        toastWindow = panel
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self, weak panel] in
+            guard let panel else { return }
+            panel.orderOut(nil)
+            if self?.toastWindow === panel {
+                self?.toastWindow = nil
+            }
+        }
+    }
+
+    @objc private func openQuickTranslateShortcutFromStatusMenu() {
+        let shortcutField = NSTextField(string: settings.quickTranslateShortcut)
+        shortcutField.placeholderString = "Command+Shift+V"
+        shortcutField.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = formLabel("快捷键")
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let saveTarget = ModalActionTarget { NSApp.stopModal(withCode: .OK) }
+        let cancelTarget = ModalActionTarget { NSApp.stopModal(withCode: .cancel) }
+        let saveButton = NSButton(title: "保存", target: saveTarget, action: #selector(ModalActionTarget.runAction))
+        let cancelButton = NSButton(title: "取消", target: cancelTarget, action: #selector(ModalActionTarget.runAction))
+        saveButton.keyEquivalent = "\r"
+        cancelButton.keyEquivalent = "\u{1b}"
+
+        let buttons = NSStackView(views: [cancelButton, saveButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView()
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 140),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "快捷翻译快捷键"
+        panel.contentView = contentView
+        panel.level = .floating
+
+        contentView.addSubview(label)
+        contentView.addSubview(shortcutField)
+        contentView.addSubview(buttons)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
+            label.centerYAnchor.constraint(equalTo: shortcutField.centerYAnchor),
+            shortcutField.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
+            shortcutField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            shortcutField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 28),
+            buttons.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
+            buttons.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -18)
+        ])
+
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        let response = NSApp.runModal(for: panel)
+        panel.orderOut(nil)
+        guard response == .OK else { return }
+
+        let shortcut = shortcutField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard HotKeyCenter.isShortcutSupported(shortcut) else {
+            showToast("快捷键无效")
+            return
+        }
+
+        var next = settings
+        next.quickTranslateShortcut = shortcut
+        saveSettings(next)
+        _ = saveTarget
+        _ = cancelTarget
     }
 
     @objc private func openModelSettingsFromStatusMenu() {
@@ -335,6 +507,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .deepSeek:
             return "DeepSeek"
         }
+    }
+
+    @objc private func toggleQuickTranslateFromStatusMenu() {
+        var next = settings
+        next.quickTranslateEnabled.toggle()
+        saveSettings(next)
     }
 
     @objc private func toggleAutoTranslateFromStatusMenu() {

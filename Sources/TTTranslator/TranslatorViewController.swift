@@ -8,25 +8,28 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     private let translationService: TranslationService
     private let pasteboardService: PasteboardService
     private let onSettingsChanged: (AppSettings) -> Void
+    private let onTranslationActivityChanged: (Bool) -> Void
 
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
     private var lastResult = ""
 
     private let statusLabel = NSTextField(labelWithString: "Ready")
-    private let sourceTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
-    private let resultTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
+    private let sourceTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
+    private let resultTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
 
     init(
         settings: AppSettings,
         translationService: TranslationService,
         pasteboardService: PasteboardService,
-        onSettingsChanged: @escaping (AppSettings) -> Void
+        onSettingsChanged: @escaping (AppSettings) -> Void,
+        onTranslationActivityChanged: @escaping (Bool) -> Void
     ) {
         self.settings = settings
         self.translationService = translationService
         self.pasteboardService = pasteboardService
         self.onSettingsChanged = onSettingsChanged
+        self.onTranslationActivityChanged = onTranslationActivityChanged
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -97,15 +100,10 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         container.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "TT")
-        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 12)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
-
-        let titleStack = NSStackView(views: [titleLabel, statusLabel])
-        titleStack.orientation = .vertical
-        titleStack.spacing = 2
 
         let pasteInputButton = makeButton(title: "读剪贴板", action: #selector(pasteInputClicked))
         let translateButton = makeButton(title: "翻译", action: #selector(translateClicked), emphasized: true)
@@ -113,7 +111,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         headerActions.orientation = .horizontal
         headerActions.spacing = 8
 
-        let header = NSStackView(views: [titleStack, spacer(), headerActions])
+        let header = NSStackView(views: [spacer(), headerActions])
         header.orientation = .horizontal
         header.alignment = .centerY
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -130,11 +128,17 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
 
         let sourceScrollView = makeScrollView(documentView: sourceTextView)
         let resultScrollView = makeScrollView(documentView: resultTextView)
+        let resultContainer = NSView()
+        resultContainer.translatesAutoresizingMaskIntoConstraints = false
+        let resultCopyButton = makeButton(title: "复制", action: #selector(copyClicked))
+        resultCopyButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(sourceScrollView)
-        container.addSubview(resultScrollView)
+        container.addSubview(resultContainer)
+        resultContainer.addSubview(resultScrollView)
+        resultContainer.addSubview(resultCopyButton)
+        container.addSubview(statusLabel)
 
         let controls = NSStackView(views: [
-            makeButton(title: "复制译文", action: #selector(copyClicked)),
             makeButton(title: "粘贴到前台", action: #selector(pasteResultClicked)),
             makeButton(title: "交换", action: #selector(swapClicked)),
             makeButton(title: "清空", action: #selector(clearClicked))
@@ -162,22 +166,33 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
             sourceScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             sourceScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             sourceScrollView.topAnchor.constraint(equalTo: sourceLabel.bottomAnchor, constant: 6),
-            sourceScrollView.heightAnchor.constraint(equalTo: resultScrollView.heightAnchor),
-            sourceScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            sourceScrollView.heightAnchor.constraint(equalTo: resultContainer.heightAnchor),
+            sourceScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
             resultLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             resultLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             resultLabel.topAnchor.constraint(equalTo: sourceScrollView.bottomAnchor, constant: 12),
 
-            resultScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            resultScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            resultScrollView.topAnchor.constraint(equalTo: resultLabel.bottomAnchor, constant: 6),
-            resultScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            resultContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            resultContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            resultContainer.topAnchor.constraint(equalTo: resultLabel.bottomAnchor, constant: 6),
+            resultContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
+
+            resultScrollView.leadingAnchor.constraint(equalTo: resultContainer.leadingAnchor),
+            resultScrollView.trailingAnchor.constraint(equalTo: resultContainer.trailingAnchor),
+            resultScrollView.topAnchor.constraint(equalTo: resultContainer.topAnchor),
+            resultScrollView.bottomAnchor.constraint(equalTo: resultContainer.bottomAnchor),
+            resultCopyButton.trailingAnchor.constraint(equalTo: resultContainer.trailingAnchor, constant: -10),
+            resultCopyButton.bottomAnchor.constraint(equalTo: resultContainer.bottomAnchor, constant: -10),
 
             controls.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            controls.topAnchor.constraint(equalTo: resultScrollView.bottomAnchor, constant: 12),
-            controls.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            controls.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            controls.topAnchor.constraint(equalTo: resultContainer.bottomAnchor, constant: 12),
+            controls.trailingAnchor.constraint(lessThanOrEqualTo: statusLabel.leadingAnchor, constant: -12),
+            controls.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            statusLabel.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
+            statusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220)
         ])
     }
 
@@ -200,15 +215,19 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.textContainer?.containerSize = NSSize(width: textView.bounds.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineBreakMode = .byCharWrapping
         textView.setAccessibilityLabel(accessibilityLabel)
     }
 
     private func makeScrollView(documentView: NSTextView) -> NSScrollView {
-        let scrollView = NSScrollView(frame: .zero)
+        let scrollView = NonExpandingScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .bezelBorder
         scrollView.drawsBackground = true
@@ -216,7 +235,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         scrollView.documentView = documentView
         scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
-        scrollView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         scrollView.setContentCompressionResistancePriority(.required, for: .vertical)
         return scrollView
     }
@@ -261,6 +280,8 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
 
         let requestSettings = settings
         setStatus("Translating...")
+        onTranslationActivityChanged(true)
+        defer { onTranslationActivityChanged(false) }
 
         do {
             let translated = try await translationService.translate(text, settings: requestSettings)
@@ -330,5 +351,22 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return spacer
+    }
+}
+
+private final class WrappingTextView: NSTextView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        invalidateIntrinsicContentSize()
+    }
+}
+
+private final class NonExpandingScrollView: NSScrollView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 }
