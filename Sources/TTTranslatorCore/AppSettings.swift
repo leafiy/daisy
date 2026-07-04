@@ -4,6 +4,14 @@ public enum ModelProvider: String, Codable, CaseIterable, Equatable {
     case openAICompatible = "openai-compatible"
     case ollama
     case deepSeek = "deepseek"
+    case google
+    case baidu
+}
+
+public enum TargetLanguage: String, Codable, CaseIterable, Equatable {
+    case auto
+    case english
+    case chinese
 }
 
 public struct AppSettings: Codable, Equatable {
@@ -22,6 +30,7 @@ public struct AppSettings: Codable, Equatable {
     public var alwaysOnTop: Bool
     public var quickTranslateEnabled: Bool
     public var quickTranslateShortcut: String
+    public var targetLanguage: TargetLanguage
 
     public init(
         baseURL: String,
@@ -38,9 +47,11 @@ public struct AppSettings: Codable, Equatable {
         alwaysOnTop: Bool,
         quickTranslateEnabled: Bool = false,
         quickTranslateShortcut: String = "Command+Shift+V",
-        provider: ModelProvider = .openAICompatible
+        provider: ModelProvider = .openAICompatible,
+        targetLanguage: TargetLanguage = .auto
     ) {
         self.provider = provider
+        self.targetLanguage = targetLanguage
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
@@ -74,7 +85,8 @@ public struct AppSettings: Codable, Equatable {
             alwaysOnTop: true,
             quickTranslateEnabled: false,
             quickTranslateShortcut: "Command+Shift+V",
-            provider: provider
+            provider: provider,
+            targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto
         )
     }
 
@@ -86,6 +98,10 @@ public struct AppSettings: Codable, Equatable {
             return "http://localhost:11434"
         case .deepSeek:
             return "https://api.deepseek.com/v1"
+        case .google:
+            return "https://translate.googleapis.com"
+        case .baidu:
+            return "https://fanyi-api.baidu.com"
         }
     }
 
@@ -97,6 +113,8 @@ public struct AppSettings: Codable, Equatable {
             return "qwen2.5"
         case .deepSeek:
             return "deepseek-chat"
+        case .google, .baidu:
+            return ""
         }
     }
 
@@ -116,6 +134,7 @@ public struct AppSettings: Codable, Equatable {
         case alwaysOnTop
         case quickTranslateEnabled
         case quickTranslateShortcut
+        case targetLanguage
     }
 
     public init(from decoder: Decoder) throws {
@@ -135,6 +154,7 @@ public struct AppSettings: Codable, Equatable {
         autoPaste = try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? defaults.autoPaste
         alwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? defaults.alwaysOnTop
         quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
+        targetLanguage = try container.decodeIfPresent(TargetLanguage.self, forKey: .targetLanguage) ?? defaults.targetLanguage
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut
     }
 }

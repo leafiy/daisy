@@ -59,7 +59,8 @@ final class SettingsStore {
             alwaysOnTop: stored.alwaysOnTop,
             quickTranslateEnabled: stored.quickTranslateEnabled,
             quickTranslateShortcut: stored.quickTranslateShortcut.isEmpty ? defaults.quickTranslateShortcut : stored.quickTranslateShortcut,
-            provider: stored.provider
+            provider: stored.provider,
+            targetLanguage: stored.targetLanguage
         )
     }
 }

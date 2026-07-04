@@ -251,6 +251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(menuItem(title: "粘贴当前译文", action: #selector(pasteResultFromStatusMenu)))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "模型接口设置…", action: #selector(openModelSettingsFromStatusMenu)))
+        let targetLanguageMenu = NSMenu()
+        for language in TargetLanguage.allCases {
+            let item = menuItem(title: language.menuTitle, action: #selector(selectTargetLanguageFromStatusMenu(_:)))
+            item.representedObject = language.rawValue
+            item.state = settings.targetLanguage == language ? .on : .off
+            targetLanguageMenu.addItem(item)
+        }
+        let targetLanguageItem = NSMenuItem(title: "目标语言", action: nil, keyEquivalent: "")
+        targetLanguageItem.submenu = targetLanguageMenu
+        menu.addItem(targetLanguageItem)
         menu.addItem(.separator())
         menu.addItem(settingItem(title: "快捷翻译", enabled: settings.quickTranslateEnabled, action: #selector(toggleQuickTranslateFromStatusMenu)))
         menu.addItem(menuItem(title: "快捷翻译快捷键：\(settings.quickTranslateShortcut)", action: #selector(openQuickTranslateShortcutFromStatusMenu)))
@@ -267,6 +277,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
+    }
+
+    @objc private func selectTargetLanguageFromStatusMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let language = TargetLanguage(rawValue: raw),
+              language != settings.targetLanguage else {
+            return
+        }
+        var next = settings
+        next.targetLanguage = language
+        saveSettings(next)
     }
 
     private func settingItem(title: String, enabled: Bool, action: Selector) -> NSMenuItem {
@@ -447,6 +468,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let apiKeyField = NSSecureTextField(string: settings.apiKey)
         let modelField = NSTextField(string: settings.model)
 
+        var lastSelectedProvider = settings.provider
+        let providerTarget = ModalActionTarget {
+            let provider = ModelProvider.allCases[providerPopup.indexOfSelectedItem]
+            guard provider != lastSelectedProvider else { return }
+            let previousProvider = lastSelectedProvider
+            lastSelectedProvider = provider
+            let currentBaseURL = baseURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if currentBaseURL.isEmpty || currentBaseURL == AppSettings.defaultBaseURL(for: previousProvider) {
+                baseURLField.stringValue = AppSettings.defaultBaseURL(for: provider)
+            }
+            let currentModel = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if currentModel.isEmpty || currentModel == AppSettings.defaultModel(for: previousProvider) {
+                modelField.stringValue = AppSettings.defaultModel(for: provider)
+            }
+        }
+        providerPopup.target = providerTarget
+        providerPopup.action = #selector(ModalActionTarget.runAction)
+
         let grid = NSGridView(views: [
             [formLabel("类型"), providerPopup],
             [formLabel("Base URL"), baseURLField],
@@ -510,6 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saveSettings(next)
         _ = saveTarget
         _ = cancelTarget
+        _ = providerTarget
     }
 
     private func formLabel(_ title: String) -> NSTextField {
@@ -526,6 +566,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return "Ollama"
         case .deepSeek:
             return "DeepSeek"
+        case .google:
+            return "Google 翻译"
+        case .baidu:
+            return "百度翻译"
         }
     }
 
@@ -586,6 +630,11 @@ enum SelfTest {
             _ = try TranslationService.makeRequest(source: "hello", settings: settings)
             let url = try TranslationService.resolveChatURL("http://localhost:11434/v1")
             guard url.absoluteString == "http://localhost:11434/v1/chat/completions" else { throw SelfTestError.urlResolution }
+            let googleURL = try TranslationService.resolveGoogleFreeTranslateURL("https://translate.googleapis.com/", target: "en", query: "hi")
+            guard googleURL.absoluteString == "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=hi" else { throw SelfTestError.urlResolution }
+            let baiduURL = try TranslationService.resolveBaiduTranslateURL("https://fanyi-api.baidu.com/")
+            guard baiduURL.absoluteString == "https://fanyi-api.baidu.com/api/trans/vip/translate" else { throw SelfTestError.urlResolution }
+            guard TranslationService.baiduSignature(appID: "2015063000000001", query: "apple", salt: "1435660288", secret: "12345678") == "f89f9594663708c1605f3d736d01d2d4" else { throw SelfTestError.urlResolution }
             guard Bundle.module.url(forResource: "daisy-menubar-template", withExtension: "png") != nil else { throw SelfTestError.iconResource }
             guard Bundle.module.url(forResource: "daisy-app-icon", withExtension: "png") != nil else { throw SelfTestError.iconResource }
             try TextWrappingSelfTest.run()
@@ -607,6 +656,19 @@ enum SelfTestError: LocalizedError {
             return "icon resource failed"
         case .urlResolution:
             return "chat URL resolution failed"
+        }
+    }
+}
+
+extension TargetLanguage {
+    var menuTitle: String {
+        switch self {
+        case .auto:
+            return "自动（中英互译）"
+        case .english:
+            return "英语"
+        case .chinese:
+            return "中文"
         }
     }
 }

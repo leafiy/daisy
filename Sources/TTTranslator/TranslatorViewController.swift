@@ -17,6 +17,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     private let statusLabel = NSTextField(labelWithString: "Ready")
     private let sourceTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
     private let resultTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
+    private let targetLanguagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
 
     init(
         settings: AppSettings,
@@ -53,6 +54,9 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
 
     func render(settings: AppSettings) {
         self.settings = settings
+        if targetLanguagePopup.numberOfItems == TargetLanguage.allCases.count {
+            targetLanguagePopup.selectItem(at: TargetLanguage.allCases.firstIndex(of: settings.targetLanguage) ?? 0)
+        }
     }
 
     func setStatus(_ text: String) {
@@ -111,7 +115,14 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         headerActions.orientation = .horizontal
         headerActions.spacing = 8
 
-        let header = NSStackView(views: [spacer(), headerActions])
+        let targetLanguageLabel = NSTextField(labelWithString: "目标语言")
+        targetLanguageLabel.font = .systemFont(ofSize: 12)
+        targetLanguageLabel.textColor = .secondaryLabelColor
+        targetLanguagePopup.addItems(withTitles: TargetLanguage.allCases.map(\.menuTitle))
+        targetLanguagePopup.target = self
+        targetLanguagePopup.action = #selector(targetLanguageChanged)
+
+        let header = NSStackView(views: [targetLanguageLabel, targetLanguagePopup, spacer(), headerActions])
         header.orientation = .horizontal
         header.alignment = .centerY
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -330,6 +341,15 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         let source = sourceTextView.string
         sourceTextView.string = resultTextView.string
         resultTextView.string = source
+        scheduleTranslation()
+    }
+
+    @objc private func targetLanguageChanged() {
+        let selected = TargetLanguage.allCases[targetLanguagePopup.indexOfSelectedItem]
+        guard selected != settings.targetLanguage else { return }
+        var next = settings
+        next.targetLanguage = selected
+        onSettingsChanged(next)
         scheduleTranslation()
     }
 
