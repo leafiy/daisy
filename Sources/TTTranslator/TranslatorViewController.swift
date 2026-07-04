@@ -217,9 +217,9 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         textView.autoresizingMask = [.width]
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        textView.textContainer?.containerSize = NSSize(width: textView.bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(width: max(textView.bounds.width, 1), height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.lineBreakMode = .byCharWrapping
+        textView.textContainer?.lineBreakMode = .byWordWrapping
         textView.setAccessibilityLabel(accessibilityLabel)
     }
 
@@ -297,6 +297,8 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
             setStatus(requestSettings.autoCopy ? "Done · copied" : "Done")
         } catch {
             guard currentRequestID == requestID else { return }
+            lastResult = ""
+            resultTextView.string = ""
             setStatus(error.localizedDescription)
         }
     }
@@ -359,14 +361,95 @@ private final class WrappingTextView: NSTextView {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateWrappingWidth()
+    }
+
     override func didChangeText() {
         super.didChangeText()
         invalidateIntrinsicContentSize()
+    }
+
+    private func updateWrappingWidth() {
+        textContainer?.containerSize = NSSize(width: max(bounds.width, 1), height: CGFloat.greatestFiniteMagnitude)
+        textContainer?.widthTracksTextView = true
     }
 }
 
 private final class NonExpandingScrollView: NSScrollView {
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func tile() {
+        super.tile()
+        resizeDocumentViewForWrapping()
+    }
+
+    private func resizeDocumentViewForWrapping() {
+        guard let textView = documentView as? NSTextView else { return }
+        let targetWidth = max(contentView.bounds.width, 1)
+        let targetHeight = max(textView.frame.height, contentView.bounds.height)
+        if abs(textView.frame.width - targetWidth) > 0.5 || abs(textView.frame.height - targetHeight) > 0.5 {
+            textView.setFrameSize(NSSize(width: targetWidth, height: targetHeight))
+        }
+        if let textContainer = textView.textContainer, abs(textContainer.containerSize.width - targetWidth) > 0.5 {
+            textContainer.containerSize = NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
+            textContainer.widthTracksTextView = true
+        }
+    }
+}
+
+enum TextWrappingSelfTest {
+    static func run() throws {
+        let textView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 120))
+        textView.font = .systemFont(ofSize: 15)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.textContainer?.containerSize = NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+
+        let scrollView = NonExpandingScrollView(frame: NSRect(x: 0, y: 0, width: 180, height: 120))
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.documentView = textView
+        scrollView.tile()
+
+        let viewportWidth = max(scrollView.contentView.bounds.width, 1)
+        guard abs(textView.frame.width - viewportWidth) <= 0.5 else {
+            throw TextWrappingSelfTestError.didNotConstrainToViewport
+        }
+
+        textView.string = "This is a long sentence that must wrap into multiple visual lines inside the Daisy translation text box."
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            throw TextWrappingSelfTestError.didNotWrapLongText
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        var lineCount = 0
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, _ in
+            lineCount += 1
+        }
+        guard lineCount > 1 else {
+            throw TextWrappingSelfTestError.didNotWrapLongText
+        }
+    }
+}
+
+enum TextWrappingSelfTestError: LocalizedError {
+    case didNotConstrainToViewport
+    case didNotWrapLongText
+
+    var errorDescription: String? {
+        switch self {
+        case .didNotConstrainToViewport:
+            return "text view width did not track the scroll viewport"
+        case .didNotWrapLongText:
+            return "long text did not wrap into multiple visual lines"
+        }
     }
 }

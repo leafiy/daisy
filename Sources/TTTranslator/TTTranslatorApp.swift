@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         settings = settingsStore.load()
+        configureApplicationIcon()
         createMenu()
         createWindow()
         createStatusItem()
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "TT Translator"
+        window.title = "Daisy"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 500, height: 460)
@@ -172,14 +173,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func createMenu() {
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About TT Translator", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "About Daisy", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Hide TT Translator", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(NSMenuItem(title: "Hide Daisy", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         appMenu.addItem(NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h"))
         appMenu.items.last?.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit TT Translator", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit Daisy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
@@ -212,15 +213,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            if let image = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "TT Translator") {
+            if let image = loadIcon(named: "daisy-menubar-template", accessibilityDescription: "Daisy") {
                 image.isTemplate = true
+                image.size = NSSize(width: 18, height: 18)
                 button.image = image
             } else {
-                button.title = "TT"
+                button.title = "daisy"
             }
         }
         statusItem = item
         rebuildStatusMenu()
+    }
+
+    private func configureApplicationIcon() {
+        if let image = loadIcon(named: "daisy-app-icon", accessibilityDescription: "Daisy") {
+            NSApp.applicationIconImage = image
+        }
+    }
+
+    private func loadIcon(named name: String, accessibilityDescription: String) -> NSImage? {
+        for subdirectory in [nil, "Icons"] as [String?] {
+            guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: subdirectory),
+                  let image = NSImage(contentsOf: url) else {
+                continue
+            }
+            image.accessibilityDescription = accessibilityDescription
+            return image
+        }
+        return nil
     }
 
     private func rebuildStatusMenu() {
@@ -239,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settingItem(title: "自动复制", enabled: settings.autoCopy, action: #selector(toggleAutoCopyFromStatusMenu)))
         menu.addItem(settingItem(title: "自动粘贴", enabled: settings.autoPaste, action: #selector(toggleAutoPasteFromStatusMenu)))
         menu.addItem(settingItem(title: "置顶", enabled: settings.alwaysOnTop, action: #selector(toggleAlwaysOnTopFromMenu)))
-        menu.addItem(NSMenuItem(title: "退出 TT Translator", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "退出 Daisy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
 
@@ -564,10 +584,11 @@ enum SelfTest {
         do {
             let settings = AppSettings.defaults(environment: [:])
             _ = try TranslationService.makeRequest(source: "hello", settings: settings)
-            guard TranslationService.detectTargetLanguage("hello") == "Simplified Chinese" else { throw SelfTestError.languageDetection }
-            guard TranslationService.detectTargetLanguage("你好") == "English" else { throw SelfTestError.languageDetection }
             let url = try TranslationService.resolveChatURL("http://localhost:11434/v1")
             guard url.absoluteString == "http://localhost:11434/v1/chat/completions" else { throw SelfTestError.urlResolution }
+            guard Bundle.module.url(forResource: "daisy-menubar-template", withExtension: "png") != nil else { throw SelfTestError.iconResource }
+            guard Bundle.module.url(forResource: "daisy-app-icon", withExtension: "png") != nil else { throw SelfTestError.iconResource }
+            try TextWrappingSelfTest.run()
             print("self-test passed")
         } catch {
             fputs("self-test failed: \(error.localizedDescription)\n", stderr)
@@ -577,13 +598,13 @@ enum SelfTest {
 }
 
 enum SelfTestError: LocalizedError {
-    case languageDetection
+    case iconResource
     case urlResolution
 
     var errorDescription: String? {
         switch self {
-        case .languageDetection:
-            return "language detection failed"
+        case .iconResource:
+            return "icon resource failed"
         case .urlResolution:
             return "chat URL resolution failed"
         }

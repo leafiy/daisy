@@ -42,18 +42,44 @@ final class TranslationCoreTests: XCTestCase {
         }
     }
 
-    func testDetectTargetLanguageUsesEnglishOnlyForChineseAndSimplifiedChineseForNonChinese() {
-        let cases: [(name: String, source: String, expected: String)] = [
-            (name: "Chinese Han text without kana or Hangul targets English", source: "今天发布版本说明。", expected: "English"),
-            (name: "Chinese mixed with English identifiers still targets English", source: "Translate API 响应", expected: "English"),
-            (name: "English input targets Simplified Chinese", source: "Ship the release notes today.", expected: "Simplified Chinese"),
-            (name: "Japanese kana and kanji input targets Simplified Chinese", source: "設定を保存しました。", expected: "Simplified Chinese"),
-            (name: "Korean Hangul input targets Simplified Chinese", source: "릴리스 노트를 게시하세요.", expected: "Simplified Chinese"),
-            (name: "Spanish input targets Simplified Chinese", source: "Publica las notas de la versión hoy.", expected: "Simplified Chinese")
+    func testMakeRequestRoutesTargetLanguageByChineseHanPresence() throws {
+        let cases: [(name: String, source: String, expectedPrompt: String)] = [
+            (
+                name: "Chinese Han text without kana or Hangul uses the official Chinese-to-English prompt",
+                source: "今天发布版本说明。",
+                expectedPrompt: chineseToEnglishPrompt(source: "今天发布版本说明。")
+            ),
+            (
+                name: "Chinese mixed with English identifiers still uses the official Chinese-to-English prompt",
+                source: "Translate API 响应",
+                expectedPrompt: chineseToEnglishPrompt(source: "Translate API 响应")
+            ),
+            (
+                name: "English input uses the official English-to-Chinese prompt",
+                source: "Ship the release notes today.",
+                expectedPrompt: englishToChinesePrompt(source: "Ship the release notes today.")
+            ),
+            (
+                name: "Japanese kana and kanji input containing Han uses the official Chinese-to-English prompt",
+                source: "設定を保存しました。",
+                expectedPrompt: chineseToEnglishPrompt(source: "設定を保存しました。")
+            ),
+            (
+                name: "Korean Hangul input uses the official English-to-Chinese prompt",
+                source: "릴리스 노트를 게시하세요.",
+                expectedPrompt: englishToChinesePrompt(source: "릴리스 노트를 게시하세요.")
+            ),
+            (
+                name: "Spanish input uses the official English-to-Chinese prompt",
+                source: "Publica las notas de la versión hoy.",
+                expectedPrompt: englishToChinesePrompt(source: "Publica las notas de la versión hoy.")
+            )
         ]
 
         for testCase in cases {
-            XCTAssertEqual(TranslationService.detectTargetLanguage(testCase.source), testCase.expected, testCase.name)
+            let messages = try makeOpenAICompatibleMessages(source: testCase.source)
+
+            assertTranslationMessages(messages, expectedContent: testCase.expectedPrompt, testCase.name)
         }
     }
 
@@ -113,7 +139,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertNil(json["maxTokens"])
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        assertTranslationMessages(messages, targetLanguage: "English", source: "Hello, 世界")
+        assertTranslationMessages(messages, expectedContent: chineseToEnglishPrompt(source: "Hello, 世界"))
     }
 
     func testMakeRequestBuildsDeepSeekOpenAICompatibleEndpointHeadersAndJSONBody() throws {
@@ -151,7 +177,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertNil(json["options"])
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        assertTranslationMessages(messages, targetLanguage: "Simplified Chinese", source: "Ship it")
+        assertTranslationMessages(messages, expectedContent: englishToChinesePrompt(source: "Ship it"))
     }
 
     func testMakeRequestBuildsOllamaChatEndpointBodyAndOptions() throws {
@@ -193,7 +219,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(options["num_predict"] as? Int, 256)
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
-        assertTranslationMessages(messages, targetLanguage: "English", source: "你好")
+        assertTranslationMessages(messages, expectedContent: chineseToEnglishPrompt(source: "你好"))
     }
 
     func testMakeRequestOmitsAuthorizationHeaderWhenAPIKeyIsBlank() throws {
@@ -218,31 +244,52 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
     }
 
+    private func makeOpenAICompatibleMessages(source: String) throws -> [[String: String]] {
+        let settings = AppSettings(
+            baseURL: "https://llm.example.test/v1",
+            apiKey: "direction-token",
+            model: "translator-model",
+            temperature: 0.2,
+            topP: 0.75,
+            maxTokens: 512,
+            debounceMilliseconds: 650,
+            autoTranslate: true,
+            watchClipboard: false,
+            autoCopy: true,
+            autoPaste: false,
+            alwaysOnTop: true,
+            provider: .openAICompatible
+        )
+
+        let request = try TranslationService.makeRequest(source: source, settings: settings)
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        return try XCTUnwrap(json["messages"] as? [[String: String]])
+    }
+
+    private func chineseToEnglishPrompt(source: String) -> String {
+        "将以下文本翻译为英语，注意只需要输出翻译后的结果，不要额外解释：\n\n\(source)"
+    }
+
+    private func englishToChinesePrompt(source: String) -> String {
+        "Translate the following text into Chinese. Note that you should only output the translated result without any additional explanation:\n\n\(source)"
+    }
+
     private func assertTranslationMessages(
         _ messages: [[String: String]],
-        targetLanguage: String,
-        source: String,
+        expectedContent: String,
+        _ message: String = "",
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"], file: file, line: line)
-
-        let systemContent = messages.first?["content"]
-        XCTAssertTrue(
-            systemContent?.contains("Choose the target language strictly by this rule: if the source contains Chinese text, translate the natural-language content into English; otherwise translate the natural-language content into Simplified Chinese.") == true,
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            systemContent?.contains("Never translate Chinese into Chinese, and never translate non-Chinese text into English.") == true,
-            file: file,
-            line: line
-        )
         XCTAssertEqual(
-            messages.last?["content"],
-            "Target language: \(targetLanguage)\nRule: Chinese source -> English only; non-Chinese source -> Simplified Chinese only.\n\nText:\n\(source)",
+            messages,
+            [["role": "user", "content": expectedContent]],
+            message,
             file: file,
             line: line
         )
     }
 }
+

@@ -13,7 +13,8 @@ let package = Package(
         .target(name: "TTTranslatorCore"),
         .executableTarget(
             name: "TTTranslator",
-            dependencies: ["TTTranslatorCore"]
+            dependencies: ["TTTranslatorCore"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "TTTranslatorCoreTests",
