@@ -213,8 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            if let image = loadIcon(named: "daisy-menubar-template", accessibilityDescription: "Daisy") {
-                image.isTemplate = true
+            if let image = loadIcon(named: "daisy", accessibilityDescription: "Daisy") {
+                image.isTemplate = false
                 image.size = NSSize(width: 18, height: 18)
                 button.image = image
             } else {
@@ -226,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureApplicationIcon() {
-        if let image = loadIcon(named: "daisy-app-icon", accessibilityDescription: "Daisy") {
+        if let image = loadIcon(named: "daisy", accessibilityDescription: "Daisy") {
             NSApp.applicationIconImage = image
         }
     }
@@ -635,8 +635,7 @@ enum SelfTest {
             let baiduURL = try TranslationService.resolveBaiduTranslateURL("https://fanyi-api.baidu.com/")
             guard baiduURL.absoluteString == "https://fanyi-api.baidu.com/api/trans/vip/translate" else { throw SelfTestError.urlResolution }
             guard TranslationService.baiduSignature(appID: "2015063000000001", query: "apple", salt: "1435660288", secret: "12345678") == "f89f9594663708c1605f3d736d01d2d4" else { throw SelfTestError.urlResolution }
-            guard Bundle.module.url(forResource: "daisy-menubar-template", withExtension: "png") != nil else { throw SelfTestError.iconResource }
-            guard Bundle.module.url(forResource: "daisy-app-icon", withExtension: "png") != nil else { throw SelfTestError.iconResource }
+            guard Bundle.module.url(forResource: "daisy", withExtension: "png") != nil else { throw SelfTestError.iconResource }
             try TextWrappingSelfTest.run()
             print("self-test passed")
         } catch {

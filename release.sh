@@ -1,0 +1,144 @@
+#!/bin/sh
+# Builds two ready-to-use DMGs (Apple Silicon + Intel) and publishes a
+# release with both attached on the Gitea server.
+#
+# Usage, on a Mac with the Xcode command line tools:
+#   GITEA_TOKEN=xxxx sh release.sh          # version from Info.plist
+#   GITEA_TOKEN=xxxx sh release.sh v1.2     # explicit version tag
+#
+# Token: Gitea web UI -> Settings -> Applications -> Generate Token
+# (repository read/write scope).
+set -eu
+cd "$(dirname "$0")"
+
+command -v swift >/dev/null 2>&1 || { echo "error: needs macOS with Xcode command line tools"; exit 1; }
+[ -n "${GITEA_TOKEN:-}" ] || { echo "error: set GITEA_TOKEN (Gitea -> Settings -> Applications -> Generate Token)"; exit 1; }
+[ -f daisy.png ] || { echo "error: daisy.png not found"; exit 1; }
+
+VERSION="${1:-v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)}"
+GITEA_URL="${GITEA_URL:-http://192.168.52.4:5010}"
+OWNER_REPO=$(git remote get-url origin | sed -E 's#\.git$##; s#.*[:/]([^/]+/[^/]+)$#\1#')
+
+# Optional Developer ID signing + notarization (removes all Gatekeeper
+# friction for downloaders). One-time setup:
+#   1. Developer ID Application certificate for team Q478GZN2AV in your keychain
+#   2. xcrun notarytool store-credentials "daisy-notary" \
+#          --apple-id tmly2006@gmail.com --team-id Q478GZN2AV --password <app-specific>
+# Then release with:
+#   NOTARY_PROFILE="daisy-notary" GITEA_TOKEN=... sh release.sh v1.1
+APPLE_ID="${APPLE_ID:-tmly2006@gmail.com}"
+TEAM_ID="${TEAM_ID:-Q478GZN2AV}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+
+if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY=$(security find-identity -v -p codesigning \
+        | sed -n "s/.*\"\(Developer ID Application: .*($TEAM_ID)\)\".*/\1/p" \
+        | head -n 1)
+fi
+if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY="-"
+    echo "warning: Developer ID Application certificate for team $TEAM_ID not found; DMGs will not be notarized for public distribution"
+elif [ -z "$NOTARY_PROFILE" ]; then
+    echo "info: Developer ID certificate found, but notarization is disabled"
+    echo "info: create credentials with: xcrun notarytool store-credentials \"daisy-notary\" --apple-id $APPLE_ID --team-id $TEAM_ID --password <app-specific>"
+    echo "info: then release with: NOTARY_PROFILE=\"daisy-notary\" GITEA_TOKEN=... sh release.sh"
+fi
+
+build_dmg() { # $1 = arch
+    arch="$1"
+    echo "== building $arch =="
+    swift build -c release --arch "$arch"
+    bin_dir=$(swift build -c release --arch "$arch" --show-bin-path)
+
+    app="build/$arch/Daisy.app"
+    rm -rf "build/$arch"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cp Info.plist "$app/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "$app/Contents/Info.plist"
+    cp "$bin_dir/tt-translator" "$app/Contents/MacOS/Daisy"
+    printf 'APPL????' > "$app/Contents/PkgInfo"
+    if [ -f build/Daisy.icns ]; then
+        cp build/Daisy.icns "$app/Contents/Resources/Daisy.icns"
+    fi
+    if [ -d "$bin_dir/TTTranslator_TTTranslator.bundle" ]; then
+        cp -R "$bin_dir/TTTranslator_TTTranslator.bundle" "$app/Contents/Resources/"
+        rm -f "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/Daisy.icns" \
+            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-app-icon.png" \
+            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-menubar-template.png" \
+            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-source.webp"
+    fi
+
+    if [ "$SIGN_IDENTITY" = "-" ]; then
+        codesign --force --sign - "$app"
+        if [ -n "$NOTARY_PROFILE" ]; then
+            echo "warning: NOTARY_PROFILE is set but signing is ad-hoc; skipping notarization"
+            NOTARY_PROFILE=""
+        fi
+    else
+        # Hardened runtime + secure timestamp are notarization requirements.
+        codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
+    fi
+
+    # DMG layout: the app plus an /Applications shortcut for drag-install.
+    staging="build/$arch/dmg"
+    mkdir -p "$staging"
+    cp -R "$app" "$staging/"
+    ln -s /Applications "$staging/Applications"
+    dmg="build/daisy-$VERSION-$arch.dmg"
+    rm -f "$dmg"
+    hdiutil create -volname "Daisy" -srcfolder "$staging" -format UDZO -quiet "$dmg"
+    if [ -n "$NOTARY_PROFILE" ]; then
+        echo "notarizing $dmg (takes a few minutes)..."
+        xcrun notarytool submit "$dmg" --keychain-profile "$NOTARY_PROFILE" --wait
+        xcrun stapler staple "$dmg"
+    fi
+    echo "made $dmg"
+}
+
+mkdir -p build
+
+# App icon: daisy.png -> Daisy.icns, once (arch-independent).
+if [ -f daisy.png ]; then
+    iconset="build/Daisy.iconset"
+    rm -rf "$iconset"
+    mkdir -p "$iconset"
+    for size in 16 32 128 256 512; do
+        sips -z "$size" "$size" daisy.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+        sips -z "$((size * 2))" "$((size * 2))" daisy.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$iconset" -o build/Daisy.icns
+    rm -rf "$iconset"
+fi
+
+build_dmg arm64
+build_dmg x86_64
+
+# ---- publish on Gitea ----
+API="$GITEA_URL/api/v1/repos/$OWNER_REPO"
+AUTH="Authorization: token $GITEA_TOKEN"
+json_id() { /usr/bin/python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'; }
+
+# Reuse the release if the tag already exists, otherwise create it (Gitea
+# tags main automatically).
+release_id=$(curl -sf -H "$AUTH" "$API/releases/tags/$VERSION" 2>/dev/null | json_id 2>/dev/null || true)
+if [ -z "$release_id" ]; then
+    body="Native macOS translation helper for menu bar and clipboard workflows.\n\nRecommended install:\n\n    curl -fsSL $GITEA_URL/$OWNER_REPO/raw/branch/main/install.sh | sh\n\nManual install: download daisy-$VERSION-arm64.dmg (Apple Silicon) or daisy-$VERSION-x86_64.dmg (Intel), drag Daisy into Applications."
+    release_id=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+        -d "{\"tag_name\":\"$VERSION\",\"name\":\"Daisy $VERSION\",\"body\":\"$body\",\"target_commitish\":\"main\"}" \
+        "$API/releases" | json_id)
+    echo "created release $VERSION (id $release_id)"
+else
+    echo "release $VERSION already exists (id $release_id), attaching assets"
+fi
+
+for dmg in "build/daisy-$VERSION-arm64.dmg" "build/daisy-$VERSION-x86_64.dmg"; do
+    name=$(basename "$dmg")
+    if curl -sf -X POST -H "$AUTH" -F "attachment=@$dmg" "$API/releases/$release_id/assets?name=$name" >/dev/null; then
+        echo "uploaded $name"
+    else
+        echo "warning: upload of $name failed (asset with the same name already attached?)"
+    fi
+done
+
+echo "release page: $GITEA_URL/$OWNER_REPO/releases"

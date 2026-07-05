@@ -121,10 +121,12 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         targetLanguagePopup.addItems(withTitles: TargetLanguage.allCases.map(\.menuTitle))
         targetLanguagePopup.target = self
         targetLanguagePopup.action = #selector(targetLanguageChanged)
+        targetLanguagePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let header = NSStackView(views: [targetLanguageLabel, targetLanguagePopup, spacer(), headerActions])
         header.orientation = .horizontal
         header.alignment = .centerY
+        header.distribution = .fill
         header.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(header)
 
@@ -159,16 +161,22 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         controls.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(controls)
 
+        let windowPadding: CGFloat = 18
+        let titlebarControlsClearance: CGFloat = 154
+        let headerTopClearance: CGFloat = 10
 
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            container.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            container.topAnchor.constraint(equalTo: view.topAnchor, constant: 18),
-            container.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -18),
+            targetLanguagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
+            targetLanguagePopup.widthAnchor.constraint(lessThanOrEqualToConstant: 282),
 
-            header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            container.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: windowPadding),
+            container.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -windowPadding),
+            container.topAnchor.constraint(equalTo: view.topAnchor, constant: windowPadding),
+            container.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -windowPadding),
+
+            header.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: titlebarControlsClearance),
             header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            header.topAnchor.constraint(equalTo: container.topAnchor),
+            header.topAnchor.constraint(equalTo: container.topAnchor, constant: headerTopClearance),
 
             sourceLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             sourceLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),

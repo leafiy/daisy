@@ -1,4 +1,7 @@
 .build/
+Daisy.app/
+build/
+*.iconset/
 .DS_Store
 *.log
 .swiftpm/
