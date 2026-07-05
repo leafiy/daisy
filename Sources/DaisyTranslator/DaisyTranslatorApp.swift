@@ -465,8 +465,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
-                self.pasteboardService.writeText(translated)
-                self.showToast("已翻译并复制")
+                if self.pasteboardService.writeText(translated) {
+                    self.showToast("已翻译并复制")
+                } else {
+                    self.showToast("翻译完成，但复制失败，请重试")
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 let message = String(

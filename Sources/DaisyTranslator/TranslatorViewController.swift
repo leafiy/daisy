@@ -338,9 +338,10 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
             guard currentRequestID == requestID else { return }
             lastResult = translated
             resultTextView.string = translated
+            var copySucceeded = false
             if requestSettings.autoCopy {
-                pasteboardService.writeText(translated)
-                onUserNotification("已复制译文")
+                copySucceeded = pasteboardService.writeText(translated)
+                onUserNotification(copySucceeded ? "已复制译文" : "复制失败，请手动复制")
             }
             if requestSettings.autoPaste {
                 guard ensurePastePermission() else {
@@ -350,7 +351,11 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
                 try await pasteboardService.pasteIntoFrontmostApp(translated, hiding: view.window)
                 onUserNotification("已自动粘贴")
             }
-            setStatus(requestSettings.autoCopy ? "已完成并复制" : "已完成")
+            if requestSettings.autoCopy {
+                setStatus(copySucceeded ? "已完成并复制" : "已完成，复制失败")
+            } else {
+                setStatus("已完成")
+            }
         } catch {
             guard currentRequestID == requestID else { return }
             lastResult = ""
@@ -370,9 +375,13 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     @objc private func copyClicked() {
         let result = resultTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.isEmpty else { return }
-        pasteboardService.writeText(result)
-        setStatus("已复制")
-        onUserNotification("已复制")
+        if pasteboardService.writeText(result) {
+            setStatus("已复制")
+            onUserNotification("已复制")
+        } else {
+            setStatus("复制失败")
+            onUserNotification("复制失败，请重试")
+        }
     }
 
     @objc private func pasteResultClicked() {

@@ -9,14 +9,28 @@ final class PasteboardService {
         NSPasteboard.general.string(forType: .string) ?? ""
     }
 
-    func writeText(_ text: String) {
-        lastProgrammaticText = text
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+    @discardableResult
+    func writeText(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        // After long idle the pasteboard connection can go stale, or another
+        // process can grab ownership between clearContents() and setString();
+        // setString then returns false and the clipboard is left empty.
+        // Retake ownership and verify instead of assuming success.
+        for _ in 0..<3 {
+            pasteboard.clearContents()
+            if pasteboard.setString(text, forType: .string),
+               pasteboard.string(forType: .string) == text {
+                lastProgrammaticText = text
+                return true
+            }
+        }
+        return false
     }
 
     func pasteIntoFrontmostApp(_ text: String, hiding window: NSWindow?) async throws {
-        writeText(text)
+        guard writeText(text) else {
+            throw PasteboardError.writeFailed
+        }
         let wasVisible = window?.isVisible == true
         if wasVisible {
             window?.orderOut(nil)
@@ -49,12 +63,15 @@ end tell
 
 enum PasteboardError: LocalizedError {
     case invalidAppleScript
+    case writeFailed
     case appleScriptFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidAppleScript:
             return "AppleScript 无效"
+        case .writeFailed:
+            return "写入剪贴板失败，请重试"
         case let .appleScriptFailed(message):
             return message
         }
