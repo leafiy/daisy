@@ -56,17 +56,17 @@ build_dmg() { # $1 = arch
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp Info.plist "$app/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "$app/Contents/Info.plist"
-    cp "$bin_dir/tt-translator" "$app/Contents/MacOS/Daisy"
+    cp "$bin_dir/daisytranslator" "$app/Contents/MacOS/Daisy"
     printf 'APPL????' > "$app/Contents/PkgInfo"
     if [ -f build/Daisy.icns ]; then
         cp build/Daisy.icns "$app/Contents/Resources/Daisy.icns"
     fi
-    if [ -d "$bin_dir/TTTranslator_TTTranslator.bundle" ]; then
-        cp -R "$bin_dir/TTTranslator_TTTranslator.bundle" "$app/Contents/Resources/"
-        rm -f "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/Daisy.icns" \
-            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-app-icon.png" \
-            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-menubar-template.png" \
-            "$app/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-source.webp"
+    if [ -d "$bin_dir/DaisyTranslator_DaisyTranslator.bundle" ]; then
+        cp -R "$bin_dir/DaisyTranslator_DaisyTranslator.bundle" "$app/Contents/Resources/"
+        rm -f "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/Daisy.icns" \
+            "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-app-icon.png" \
+            "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-menubar-template.png" \
+            "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-source.webp"
     fi
 
     if [ "$SIGN_IDENTITY" = "-" ]; then

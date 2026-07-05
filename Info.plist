@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>Daisy</string>
 	<key>CFBundleIdentifier</key>
-	<string>dev.leafiy.daisy</string>
+	<string>com.leafiy.daisy</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

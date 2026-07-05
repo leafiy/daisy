@@ -1,5 +1,5 @@
 import Foundation
-import TTTranslatorCore
+import DaisyTranslatorCore
 
 final class SettingsStore {
     private let fileURL: URL
@@ -19,8 +19,12 @@ final class SettingsStore {
         let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         self.fileURL = applicationSupport
-            .appendingPathComponent("TT Translator", isDirectory: true)
+            .appendingPathComponent("DaisyTranslator", isDirectory: true)
             .appendingPathComponent("settings.json")
+    }
+
+    var hasSavedSettings: Bool {
+        FileManager.default.fileExists(atPath: fileURL.path)
     }
 
     func load() -> AppSettings {
@@ -44,10 +48,27 @@ final class SettingsStore {
 
 
     private func merged(_ stored: AppSettings, with defaults: AppSettings) -> AppSettings {
-        AppSettings(
-            baseURL: stored.baseURL.isEmpty ? defaults.baseURL : stored.baseURL,
-            apiKey: stored.apiKey,
-            model: stored.model.isEmpty ? defaults.model : stored.model,
+        let providerDefaultBaseURL = AppSettings.defaultBaseURL(for: stored.provider)
+        let providerDefaultModel = AppSettings.defaultModel(for: stored.provider)
+        var providerConfigurations = AppSettings.defaultProviderConfigurations()
+        providerConfigurations.merge(stored.providerConfigurations) { _, storedConfiguration in
+            storedConfiguration
+        }
+        if stored.providerConfigurations[stored.provider.rawValue] == nil {
+            providerConfigurations[stored.provider.rawValue] = ProviderConfiguration(
+                baseURL: stored.baseURL.isEmpty ? providerDefaultBaseURL : stored.baseURL,
+                apiKey: stored.apiKey,
+                model: stored.model.isEmpty ? providerDefaultModel : stored.model
+            )
+        }
+        let activeConfiguration = providerConfigurations[stored.provider.rawValue]
+            ?? AppSettings.defaultConfiguration(for: stored.provider)
+
+        return AppSettings(
+            baseURL: activeConfiguration.baseURL.isEmpty ? providerDefaultBaseURL : activeConfiguration.baseURL,
+            apiKey: activeConfiguration.apiKey,
+            model: activeConfiguration.model.isEmpty ? providerDefaultModel : activeConfiguration.model,
+            providerConfigurations: providerConfigurations,
             temperature: stored.temperature == 0 ? defaults.temperature : stored.temperature,
             topP: stored.topP == 0 ? defaults.topP : stored.topP,
             maxTokens: stored.maxTokens == 0 ? defaults.maxTokens : stored.maxTokens,
@@ -60,7 +81,8 @@ final class SettingsStore {
             quickTranslateEnabled: stored.quickTranslateEnabled,
             quickTranslateShortcut: stored.quickTranslateShortcut.isEmpty ? defaults.quickTranslateShortcut : stored.quickTranslateShortcut,
             provider: stored.provider,
-            targetLanguage: stored.targetLanguage
+            targetLanguage: stored.targetLanguage,
+            onboardingCompleted: stored.onboardingCompleted
         )
     }
 }

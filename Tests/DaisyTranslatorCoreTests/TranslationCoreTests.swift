@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import XCTest
-import TTTranslatorCore
+import DaisyTranslatorCore
 
 final class TranslationCoreTests: XCTestCase {
     func testResolveChatURLNormalizesOpenAICompatibleBaseURLs() throws {
@@ -22,6 +22,21 @@ final class TranslationCoreTests: XCTestCase {
                 name: "complete chat endpoint is preserved",
                 baseURL: "https://llm.example.test/services/model/v1/chat/completions/",
                 expected: "https://llm.example.test/services/model/v1/chat/completions"
+            ),
+            (
+                name: "long versioned base path preserves every segment",
+                baseURL: "https://llm.example.test/services/workspaces/team-a/providers/openai-compatible/models/qwen36-35b-a3b-mtp-q6/v1",
+                expected: "https://llm.example.test/services/workspaces/team-a/providers/openai-compatible/models/qwen36-35b-a3b-mtp-q6/v1/chat/completions"
+            ),
+            (
+                name: "full endpoint with query is preserved",
+                baseURL: "https://llm.example.test/openai/deployments/translator/chat/completions?api-version=2024-10-21",
+                expected: "https://llm.example.test/openai/deployments/translator/chat/completions?api-version=2024-10-21"
+            ),
+            (
+                name: "versioned base with query appends path before query",
+                baseURL: "https://llm.example.test/openai/deployments/translator/v1?api-version=2024-10-21",
+                expected: "https://llm.example.test/openai/deployments/translator/v1/chat/completions?api-version=2024-10-21"
             )
         ]
 
@@ -156,6 +171,52 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(settings.maxTokens, 2048)
     }
 
+    func testAppSettingsDefaultsUseAppleSystemProvider() {
+        let settings = AppSettings.defaults(environment: [:])
+
+        XCTAssertEqual(settings.provider, .appleSystem)
+        XCTAssertEqual(settings.baseURL, "")
+        XCTAssertEqual(settings.model, "")
+        XCTAssertFalse(settings.alwaysOnTop)
+        XCTAssertEqual(ModelProvider.appleSystem.rawValue, "apple-system")
+    }
+
+    func testAppSettingsDefaultsKeepProviderConfigurationsSeparate() {
+        let settings = AppSettings.defaults(environment: [
+            "TT_PROVIDER": ModelProvider.deepSeek.rawValue,
+            "TT_API_KEY": "deepseek-token",
+            "TT_MODEL": "deepseek-custom"
+        ])
+
+        XCTAssertEqual(settings.providerConfigurations[ModelProvider.deepSeek.rawValue]?.apiKey, "deepseek-token")
+        XCTAssertEqual(settings.providerConfigurations[ModelProvider.deepSeek.rawValue]?.model, "deepseek-custom")
+        XCTAssertEqual(settings.providerConfigurations[ModelProvider.google.rawValue]?.apiKey, "")
+        XCTAssertEqual(
+            settings.providerConfigurations[ModelProvider.google.rawValue]?.baseURL,
+            AppSettings.defaultBaseURL(for: .google)
+        )
+    }
+
+    func testAppSettingsDecodingMigratesLegacyProviderFieldsIntoProviderConfiguration() throws {
+        let settings = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"provider":"baidu","baseURL":"https://legacy.example.test","apiKey":"baidu-token","model":"legacy-model"}"#.utf8)
+        )
+
+        let configuration = try XCTUnwrap(settings.providerConfigurations[ModelProvider.baidu.rawValue])
+        XCTAssertEqual(configuration.baseURL, "https://legacy.example.test")
+        XCTAssertEqual(configuration.apiKey, "baidu-token")
+        XCTAssertEqual(configuration.model, "legacy-model")
+    }
+
+    func testAppleSystemProviderDoesNotBuildNetworkRequest() {
+        let settings = AppSettings.defaults(environment: [:])
+
+        XCTAssertThrowsError(try TranslationService.makeRequest(source: "Hello", settings: settings)) { error in
+            XCTAssertEqual(error as? TranslationError, .appleSystemTranslationUnavailable)
+        }
+    }
+
     func testAppSettingsDecodingDefaultsMissingTargetLanguageToAutoAndReadsKnownValue() throws {
         let missingTargetLanguage = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         XCTAssertEqual(missingTargetLanguage.targetLanguage, .auto)
@@ -219,9 +280,9 @@ final class TranslationCoreTests: XCTestCase {
 
     func testMakeRequestBuildsDeepSeekOpenAICompatibleEndpointHeadersAndJSONBody() throws {
         let settings = AppSettings(
-            baseURL: "https://api.deepseek.com/v1/",
+            baseURL: "https://api.deepseek.com/",
             apiKey: "deepseek-token",
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             temperature: 0.35,
             topP: 0.65,
             maxTokens: 1024,
@@ -236,7 +297,7 @@ final class TranslationCoreTests: XCTestCase {
 
         let request = try TranslationService.makeRequest(source: "Ship it", settings: settings)
 
-        XCTAssertEqual(request.url?.absoluteString, "https://api.deepseek.com/v1/chat/completions")
+        XCTAssertEqual(request.url?.absoluteString, "https://api.deepseek.com/chat/completions")
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer deepseek-token")
@@ -244,7 +305,7 @@ final class TranslationCoreTests: XCTestCase {
         let body = try XCTUnwrap(request.httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
 
-        XCTAssertEqual(json["model"] as? String, "deepseek-chat")
+        XCTAssertEqual(json["model"] as? String, "deepseek-v4-flash")
         XCTAssertEqual(json["temperature"] as? Double, 0.35)
         XCTAssertEqual(json["top_p"] as? Double, 0.65)
         XCTAssertEqual(json["max_tokens"] as? Int, 1024)
@@ -253,6 +314,95 @@ final class TranslationCoreTests: XCTestCase {
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
         assertTranslationMessages(messages, expectedContent: englishToChinesePrompt(source: "Ship it"))
+    }
+
+    func testDeepSeekProviderDefaultsUseFlashModel() {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.provider = .deepSeek
+        settings.baseURL = AppSettings.defaultBaseURL(for: .deepSeek)
+        settings.model = AppSettings.defaultModel(for: .deepSeek)
+
+        XCTAssertEqual(settings.baseURL, "https://api.deepseek.com")
+        XCTAssertEqual(settings.model, "deepseek-v4-flash")
+    }
+
+    func testResolveDeepSeekChatURLUsesUnversionedEndpointAndNormalizesOldBaseURL() throws {
+        let bareURL = try TranslationService.resolveDeepSeekChatURL(" https://api.deepseek.com/ ")
+        XCTAssertEqual(bareURL.absoluteString, "https://api.deepseek.com/chat/completions")
+
+        let oldVersionedBaseURL = try TranslationService.resolveDeepSeekChatURL("https://api.deepseek.com/v1/")
+        XCTAssertEqual(oldVersionedBaseURL.absoluteString, "https://api.deepseek.com/chat/completions")
+
+        let oldVersionedEndpointURL = try TranslationService.resolveDeepSeekChatURL(
+            "https://api.deepseek.com/v1/chat/completions/"
+        )
+        XCTAssertEqual(oldVersionedEndpointURL.absoluteString, "https://api.deepseek.com/chat/completions")
+    }
+
+    func testDeepSeekHTTPErrorShowsReadableMessage() async throws {
+        let service = makeMockedTranslationService(
+            body: #"{"error":{"message":"Insufficient Balance","type":"invalid_request_error"}}"#,
+            statusCode: 402
+        )
+        var settings = AppSettings.defaults(environment: [:])
+        settings.provider = .deepSeek
+        settings.baseURL = AppSettings.defaultBaseURL(for: .deepSeek)
+        settings.apiKey = "deepseek-token"
+        settings.model = AppSettings.defaultModel(for: .deepSeek)
+
+        do {
+            _ = try await service.translate("Hello", settings: settings)
+            XCTFail("Expected DeepSeek HTTP error to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 402, body: "DeepSeek 额度或余额不足，请检查账号余额和用量限制")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("Insufficient Balance"))
+        }
+    }
+
+    func testDeepSeekPlainAuthenticationErrorShowsReadableMessage() async throws {
+        let service = makeMockedTranslationService(body: "Authentication Fails", statusCode: 401)
+        var settings = AppSettings.defaults(environment: [:])
+        settings.provider = .deepSeek
+        settings.baseURL = AppSettings.defaultBaseURL(for: .deepSeek)
+        settings.apiKey = "bad-token"
+        settings.model = AppSettings.defaultModel(for: .deepSeek)
+
+        do {
+            _ = try await service.translate("Hello", settings: settings)
+            XCTFail("Expected DeepSeek authentication error to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 401, body: "DeepSeek 鉴权失败，请检查 API Key 是否正确")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("Authentication"))
+        }
+    }
+
+    func testOpenAICompatibleAuthenticationErrorShowsReadableMessage() async throws {
+        let service = makeMockedTranslationService(
+            body: #"{"error":{"message":"Authentication Fails"}}"#,
+            statusCode: 401
+        )
+        var settings = AppSettings.defaults(environment: [:])
+        settings.provider = .openAICompatible
+        settings.baseURL = "https://llm.example.test/v1"
+        settings.apiKey = "bad-token"
+        settings.model = "translator-model"
+
+        do {
+            _ = try await service.translate("Hello", settings: settings)
+            XCTFail("Expected compatible provider authentication error to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 401, body: "服务鉴权失败，请检查 API Key 是否正确")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("Authentication"))
+        }
     }
 
     func testMakeRequestBuildsOllamaChatEndpointBodyAndOptions() throws {
@@ -405,35 +555,24 @@ final class TranslationCoreTests: XCTestCase {
         ]
 
         for testCase in cases {
-            let settings = makeBaiduSettings(apiKey: "myappid:mysecret")
-            let salt = "987654"
+            let settings = makeBaiduSettings(apiKey: "baidu-token")
 
             let request = try TranslationService.makeBaiduTranslateRequest(
                 source: testCase.source,
-                settings: settings,
-                salt: salt
+                settings: settings
             )
 
-            XCTAssertEqual(request.url?.absoluteString, "https://fanyi-api.baidu.com/api/trans/vip/translate", testCase.name)
+            XCTAssertEqual(request.url?.absoluteString, "https://fanyi-api.baidu.com/ait/api/aiTextTranslate", testCase.name)
             XCTAssertEqual(request.httpMethod, "POST", testCase.name)
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded", testCase.name)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer baidu-token", testCase.name)
 
             let fields = try baiduFormBodyItems(in: request)
             XCTAssertEqual(fields["q"], testCase.source, testCase.name)
             XCTAssertEqual(fields["from"], "auto", testCase.name)
             XCTAssertEqual(fields["to"], testCase.expectedTarget, testCase.name)
-            XCTAssertEqual(fields["appid"], "myappid", testCase.name)
-            XCTAssertEqual(fields["salt"], salt, testCase.name)
-            XCTAssertEqual(
-                fields["sign"],
-                TranslationService.baiduSignature(
-                    appID: "myappid",
-                    query: testCase.source,
-                    salt: salt,
-                    secret: "mysecret"
-                ),
-                testCase.name
-            )
+            XCTAssertNil(fields["appid"], testCase.name)
+            XCTAssertNil(fields["sign"], testCase.name)
         }
     }
 
@@ -454,13 +593,12 @@ final class TranslationCoreTests: XCTestCase {
         ]
 
         for testCase in cases {
-            var settings = makeBaiduSettings(apiKey: "app:secret")
+            var settings = makeBaiduSettings(apiKey: "baidu-token")
             settings.targetLanguage = testCase.preference
 
             let request = try TranslationService.makeBaiduTranslateRequest(
                 source: testCase.source,
-                settings: settings,
-                salt: "fixed-salt"
+                settings: settings
             )
 
             let fields = try baiduFormBodyItems(in: request)
@@ -468,8 +606,8 @@ final class TranslationCoreTests: XCTestCase {
         }
     }
 
-    func testMakeBaiduRequestRejectsMalformedCredentials() {
-        let invalidAPIKeys = ["appidonly", ":secret", "appid:"]
+    func testMakeBaiduRequestRejectsBlankAPIKey() {
+        let invalidAPIKeys = ["", "   \n\t  "]
 
         for apiKey in invalidAPIKeys {
             let settings = makeBaiduSettings(apiKey: apiKey)
@@ -483,33 +621,59 @@ final class TranslationCoreTests: XCTestCase {
         }
     }
 
-    func testBaiduCredentialsSplitSecretOnFirstColon() throws {
-        let source = "你好，世界"
-        let salt = "123456"
-        let settings = makeBaiduSettings(apiKey: "app:se:cret")
+    func testBaiduDecodeHandlesNestedTransResultResponse() async throws {
+        let service = makeMockedTranslationService(body: #"{"data":{"trans_result":[{"src":"Hello","dst":"你好"}]}}"#)
 
-        let request = try TranslationService.makeBaiduTranslateRequest(
-            source: source,
-            settings: settings,
-            salt: salt
-        )
+        let translated = try await service.translate("Hello", settings: makeBaiduSettings(apiKey: "baidu-token"))
 
-        let fields = try baiduFormBodyItems(in: request)
-        XCTAssertEqual(fields["appid"], "app")
-        XCTAssertEqual(
-            fields["sign"],
-            TranslationService.baiduSignature(appID: "app", query: source, salt: salt, secret: "se:cret")
-        )
+        XCTAssertEqual(translated, "你好")
+    }
+
+    func testBaiduDecodeReportsNumericErrorCode() async throws {
+        let service = makeMockedTranslationService(body: #"{"error_code":401,"error_msg":"invalid api key"}"#)
+
+        do {
+            _ = try await service.translate("Hello", settings: makeBaiduSettings(apiKey: "baidu-token"))
+            XCTFail("Expected Baidu error response to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 401, body: "百度翻译鉴权失败，请检查 API Key 是否正确并已开通大模型文本翻译 API")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("invalid api key"))
+        }
+    }
+
+    func testRawEnglishHTTPErrorFallsBackToChineseMessage() async throws {
+        let service = makeMockedTranslationService(body: "Internal Server Error", statusCode: 500)
+
+        do {
+            _ = try await service.translate("Hello", settings: makeGoogleSettings(apiKey: "google-token"))
+            XCTFail("Expected HTTP error to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 500, body: "Google 翻译服务暂时不可用，请稍后重试")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("Internal Server Error"))
+        }
+    }
+
+    func testUserFacingErrorMessageMapsURLSessionEnglishErrorsToChinese() {
+        let message = TranslationService.userFacingErrorMessage(URLError(.timedOut), provider: .deepSeek)
+
+        XCTAssertEqual(message, "翻译请求超时，请稍后重试")
+        XCTAssertFalse(message.localizedCaseInsensitiveContains("timed out"))
     }
 
     func testResolveBaiduTranslateURLNormalizesBaseURLsAndRejectsEmptyBaseURL() throws {
         let trailingSlashURL = try TranslationService.resolveBaiduTranslateURL(" https://fanyi-api.baidu.com/ ")
-        XCTAssertEqual(trailingSlashURL.absoluteString, "https://fanyi-api.baidu.com/api/trans/vip/translate")
+        XCTAssertEqual(trailingSlashURL.absoluteString, "https://fanyi-api.baidu.com/ait/api/aiTextTranslate")
 
         let endpointURL = try TranslationService.resolveBaiduTranslateURL(
-            "https://fanyi-api.baidu.com/api/trans/vip/translate/"
+            "https://fanyi-api.baidu.com/ait/api/aiTextTranslate/"
         )
-        XCTAssertEqual(endpointURL.absoluteString, "https://fanyi-api.baidu.com/api/trans/vip/translate")
+        XCTAssertEqual(endpointURL.absoluteString, "https://fanyi-api.baidu.com/ait/api/aiTextTranslate")
 
         for baseURL in ["", "   \n\t  "] {
             XCTAssertThrowsError(
@@ -576,6 +740,25 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(json["q"] as? [String], [source])
         XCTAssertEqual(json["target"] as? String, "en")
         XCTAssertEqual(json["format"] as? String, "text")
+    }
+
+    func testGoogleHTTPErrorShowsReadableMessage() async throws {
+        let service = makeMockedTranslationService(
+            body: #"{"error":{"code":403,"message":"Cloud Translation API has not been used in project before or it is disabled.","status":"PERMISSION_DENIED"}}"#,
+            statusCode: 403
+        )
+
+        do {
+            _ = try await service.translate("Hello", settings: makeGoogleSettings(apiKey: "google-token"))
+            XCTFail("Expected Google HTTP error to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 403, body: "请在 Google Cloud 启用 Cloud Translation API，并确认 API Key 有权限")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(#""error""#))
+            XCTAssertFalse(error.localizedDescription.contains("Cloud Translation API has not been used"))
+        }
     }
 
     func testResolveGoogleTranslateURLsNormalizeBaseURLsAndRejectEmptyBaseURL() throws {
@@ -647,6 +830,14 @@ final class TranslationCoreTests: XCTestCase {
         settings.apiKey = apiKey
         settings.model = AppSettings.defaultModel(for: .baidu)
         return settings
+    }
+
+    private func makeMockedTranslationService(body: String, statusCode: Int = 200) -> TranslationService {
+        MockURLProtocol.statusCode = statusCode
+        MockURLProtocol.responseData = Data(body.utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return TranslationService(session: URLSession(configuration: configuration))
     }
 
     private func baiduFormBodyItems(
@@ -742,3 +933,29 @@ final class TranslationCoreTests: XCTestCase {
     }
 }
 
+private final class MockURLProtocol: URLProtocol {
+    static var responseData = Data()
+    static var statusCode = 200
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url ?? URL(string: "https://example.invalid")!,
+            statusCode: Self.statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseData)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}

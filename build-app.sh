@@ -37,15 +37,15 @@ APP=Daisy.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
-cp "$BIN_DIR/tt-translator" "$APP/Contents/MacOS/Daisy"
+cp "$BIN_DIR/daisytranslator" "$APP/Contents/MacOS/Daisy"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 make_icns daisy.png "$APP/Contents/Resources/Daisy.icns"
-if [ -d "$BIN_DIR/TTTranslator_TTTranslator.bundle" ]; then
-    cp -R "$BIN_DIR/TTTranslator_TTTranslator.bundle" "$APP/Contents/Resources/"
-    rm -f "$APP/Contents/Resources/TTTranslator_TTTranslator.bundle/Daisy.icns" \
-        "$APP/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-app-icon.png" \
-        "$APP/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-menubar-template.png" \
-        "$APP/Contents/Resources/TTTranslator_TTTranslator.bundle/daisy-source.webp"
+if [ -d "$BIN_DIR/DaisyTranslator_DaisyTranslator.bundle" ]; then
+    cp -R "$BIN_DIR/DaisyTranslator_DaisyTranslator.bundle" "$APP/Contents/Resources/"
+    rm -f "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/Daisy.icns" \
+        "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-app-icon.png" \
+        "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-menubar-template.png" \
+        "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-source.webp"
 fi
 
 if [ -z "$SIGN_IDENTITY" ]; then

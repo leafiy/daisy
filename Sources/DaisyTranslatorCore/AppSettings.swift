@@ -1,6 +1,7 @@
 import Foundation
 
 public enum ModelProvider: String, Codable, CaseIterable, Equatable {
+    case appleSystem = "apple-system"
     case openAICompatible = "openai-compatible"
     case ollama
     case deepSeek = "deepseek"
@@ -14,11 +15,24 @@ public enum TargetLanguage: String, Codable, CaseIterable, Equatable {
     case chinese
 }
 
+public struct ProviderConfiguration: Codable, Equatable {
+    public var baseURL: String
+    public var apiKey: String
+    public var model: String
+
+    public init(baseURL: String, apiKey: String, model: String) {
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+        self.model = model
+    }
+}
+
 public struct AppSettings: Codable, Equatable {
     public var provider: ModelProvider
     public var baseURL: String
     public var apiKey: String
     public var model: String
+    public var providerConfigurations: [String: ProviderConfiguration]
     public var temperature: Double
     public var topP: Double
     public var maxTokens: Int
@@ -31,11 +45,13 @@ public struct AppSettings: Codable, Equatable {
     public var quickTranslateEnabled: Bool
     public var quickTranslateShortcut: String
     public var targetLanguage: TargetLanguage
+    public var onboardingCompleted: Bool
 
     public init(
         baseURL: String,
         apiKey: String,
         model: String,
+        providerConfigurations: [String: ProviderConfiguration] = [:],
         temperature: Double,
         topP: Double,
         maxTokens: Int,
@@ -47,14 +63,17 @@ public struct AppSettings: Codable, Equatable {
         alwaysOnTop: Bool,
         quickTranslateEnabled: Bool = false,
         quickTranslateShortcut: String = "Command+Shift+V",
-        provider: ModelProvider = .openAICompatible,
-        targetLanguage: TargetLanguage = .auto
+        provider: ModelProvider = .appleSystem,
+        targetLanguage: TargetLanguage = .auto,
+        onboardingCompleted: Bool = false
     ) {
         self.provider = provider
         self.targetLanguage = targetLanguage
+        self.onboardingCompleted = onboardingCompleted
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
+        self.providerConfigurations = providerConfigurations
         self.quickTranslateEnabled = quickTranslateEnabled
         self.quickTranslateShortcut = quickTranslateShortcut
         self.temperature = temperature
@@ -69,11 +88,18 @@ public struct AppSettings: Codable, Equatable {
     }
 
     public static func defaults(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppSettings {
-        let provider = ModelProvider(rawValue: environment["TT_PROVIDER"] ?? "") ?? .openAICompatible
+        let provider = ModelProvider(rawValue: environment["TT_PROVIDER"] ?? "") ?? .appleSystem
+        var providerConfigurations = defaultProviderConfigurations()
+        providerConfigurations[provider.rawValue] = ProviderConfiguration(
+            baseURL: environment["TT_BASE_URL"] ?? defaultBaseURL(for: provider),
+            apiKey: environment["TT_API_KEY"] ?? "",
+            model: environment["TT_MODEL"] ?? defaultModel(for: provider)
+        )
         return AppSettings(
             baseURL: environment["TT_BASE_URL"] ?? defaultBaseURL(for: provider),
             apiKey: environment["TT_API_KEY"] ?? "",
             model: environment["TT_MODEL"] ?? defaultModel(for: provider),
+            providerConfigurations: providerConfigurations,
             temperature: Double(environment["TT_TEMPERATURE"] ?? "") ?? 0.4,
             topP: Double(environment["TT_TOP_P"] ?? "") ?? 0.8,
             maxTokens: Int(environment["TT_MAX_TOKENS"] ?? "") ?? 8192,
@@ -82,7 +108,7 @@ public struct AppSettings: Codable, Equatable {
             watchClipboard: false,
             autoCopy: true,
             autoPaste: false,
-            alwaysOnTop: true,
+            alwaysOnTop: false,
             quickTranslateEnabled: false,
             quickTranslateShortcut: "Command+Shift+V",
             provider: provider,
@@ -92,12 +118,18 @@ public struct AppSettings: Codable, Equatable {
 
     public static func defaultBaseURL(for provider: ModelProvider) -> String {
         switch provider {
+        case .appleSystem:
+            return ""
         case .openAICompatible:
+            #if DEBUG
             return "http://192.168.52.22:9940/services/qwen36-35b-a3b-mtp-q6/v1"
+            #else
+            return ""
+            #endif
         case .ollama:
             return "http://localhost:11434"
         case .deepSeek:
-            return "https://api.deepseek.com/v1"
+            return "https://api.deepseek.com"
         case .google:
             return "https://translate.googleapis.com"
         case .baidu:
@@ -107,15 +139,47 @@ public struct AppSettings: Codable, Equatable {
 
     public static func defaultModel(for provider: ModelProvider) -> String {
         switch provider {
+        case .appleSystem:
+            return ""
         case .openAICompatible:
+            #if DEBUG
             return "qwen36-35b-a3b-mtp"
+            #else
+            return ""
+            #endif
         case .ollama:
             return "qwen2.5"
         case .deepSeek:
-            return "deepseek-chat"
+            return "deepseek-v4-flash"
         case .google, .baidu:
             return ""
         }
+    }
+
+    public static func defaultConfiguration(for provider: ModelProvider) -> ProviderConfiguration {
+        ProviderConfiguration(
+            baseURL: defaultBaseURL(for: provider),
+            apiKey: "",
+            model: defaultModel(for: provider)
+        )
+    }
+
+    public static func defaultProviderConfigurations() -> [String: ProviderConfiguration] {
+        Dictionary(
+            uniqueKeysWithValues: ModelProvider.allCases.map { provider in
+                (provider.rawValue, defaultConfiguration(for: provider))
+            }
+        )
+    }
+
+    public func configuration(for provider: ModelProvider) -> ProviderConfiguration {
+        if let configuration = providerConfigurations[provider.rawValue] {
+            return configuration
+        }
+        if provider == self.provider {
+            return ProviderConfiguration(baseURL: baseURL, apiKey: apiKey, model: model)
+        }
+        return AppSettings.defaultConfiguration(for: provider)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -123,6 +187,7 @@ public struct AppSettings: Codable, Equatable {
         case baseURL
         case apiKey
         case model
+        case providerConfigurations
         case temperature
         case topP
         case maxTokens
@@ -135,6 +200,7 @@ public struct AppSettings: Codable, Equatable {
         case quickTranslateEnabled
         case quickTranslateShortcut
         case targetLanguage
+        case onboardingCompleted
     }
 
     public init(from decoder: Decoder) throws {
@@ -144,6 +210,18 @@ public struct AppSettings: Codable, Equatable {
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? defaults.baseURL
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? defaults.apiKey
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? defaults.model
+        var decodedProviderConfigurations = try container.decodeIfPresent(
+            [String: ProviderConfiguration].self,
+            forKey: .providerConfigurations
+        ) ?? [:]
+        if decodedProviderConfigurations[provider.rawValue] == nil {
+            decodedProviderConfigurations[provider.rawValue] = ProviderConfiguration(
+                baseURL: baseURL,
+                apiKey: apiKey,
+                model: model
+            )
+        }
+        providerConfigurations = decodedProviderConfigurations
         temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? defaults.temperature
         topP = try container.decodeIfPresent(Double.self, forKey: .topP) ?? defaults.topP
         maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens) ?? defaults.maxTokens
@@ -156,5 +234,6 @@ public struct AppSettings: Codable, Equatable {
         quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
         targetLanguage = try container.decodeIfPresent(TargetLanguage.self, forKey: .targetLanguage) ?? defaults.targetLanguage
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut
+        onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
     }
 }

@@ -2,23 +2,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "TTTranslator",
+    name: "DaisyTranslator",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "tt-translator", targets: ["TTTranslator"])
+        .executable(name: "daisytranslator", targets: ["DaisyTranslator"])
     ],
     targets: [
-        .target(name: "TTTranslatorCore"),
+        .target(name: "DaisyTranslatorCore"),
         .executableTarget(
-            name: "TTTranslator",
-            dependencies: ["TTTranslatorCore"],
+            name: "DaisyTranslator",
+            dependencies: ["DaisyTranslatorCore"],
             resources: [.process("Resources")]
         ),
         .testTarget(
-            name: "TTTranslatorCoreTests",
-            dependencies: ["TTTranslatorCore"]
+            name: "DaisyTranslatorCoreTests",
+            dependencies: ["DaisyTranslatorCore"]
         )
     ]
 )

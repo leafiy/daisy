@@ -1,36 +1,45 @@
 import AppKit
 import Foundation
-import TTTranslatorCore
+import DaisyTranslatorCore
 
 @MainActor
 final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     private var settings: AppSettings
-    private let translationService: TranslationService
     private let pasteboardService: PasteboardService
+    private let translateText: (String, AppSettings) async throws -> String
     private let onSettingsChanged: (AppSettings) -> Void
     private let onTranslationActivityChanged: (Bool) -> Void
+    private let onUserNotification: (String) -> Void
+    private let ensurePastePermission: () -> Bool
 
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
     private var lastResult = ""
+    private let minimumDebounceMilliseconds = 150
+    private let maximumDebounceMilliseconds = 1_200
 
-    private let statusLabel = NSTextField(labelWithString: "Ready")
+    private let statusLabel = NSTextField(labelWithString: "就绪")
     private let sourceTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
     private let resultTextView = WrappingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
     private let targetLanguagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let alwaysOnTopButton = NSButton()
 
     init(
         settings: AppSettings,
-        translationService: TranslationService,
         pasteboardService: PasteboardService,
+        translateText: @escaping (String, AppSettings) async throws -> String,
         onSettingsChanged: @escaping (AppSettings) -> Void,
-        onTranslationActivityChanged: @escaping (Bool) -> Void
+        onTranslationActivityChanged: @escaping (Bool) -> Void,
+        onUserNotification: @escaping (String) -> Void,
+        ensurePastePermission: @escaping () -> Bool
     ) {
         self.settings = settings
-        self.translationService = translationService
         self.pasteboardService = pasteboardService
+        self.translateText = translateText
         self.onSettingsChanged = onSettingsChanged
         self.onTranslationActivityChanged = onTranslationActivityChanged
+        self.onUserNotification = onUserNotification
+        self.ensurePastePermission = ensurePastePermission
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -57,6 +66,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         if targetLanguagePopup.numberOfItems == TargetLanguage.allCases.count {
             targetLanguagePopup.selectItem(at: TargetLanguage.allCases.firstIndex(of: settings.targetLanguage) ?? 0)
         }
+        updateAlwaysOnTopButton()
     }
 
     func setStatus(_ text: String) {
@@ -65,7 +75,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
 
     func acceptClipboardText(_ text: String) {
         sourceTextView.string = text
-        setStatus("Clipboard changed")
+        setStatus("已读取剪贴板")
         scheduleTranslation()
     }
 
@@ -85,17 +95,24 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         Task { [weak self] in
             guard let self else { return }
             do {
+                guard ensurePastePermission() else { return }
                 try await pasteboardService.pasteIntoFrontmostApp(result, hiding: view.window)
                 setStatus("已粘贴")
+                onUserNotification("已粘贴")
             } catch {
-                setStatus("粘贴失败：\(error.localizedDescription)")
+                setStatus("粘贴失败：\(TranslationService.userFacingErrorMessage(error, provider: nil))")
             }
         }
     }
 
+    func retryCurrentText() {
+        translateCurrentText()
+    }
+
     func textDidChange(_ notification: Notification) {
         if notification.object as? NSTextView === sourceTextView {
-            scheduleTranslation()
+            requestID += 1
+            scheduleTranslation(waitingForInputToStop: true)
         }
     }
 
@@ -109,10 +126,11 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
 
+        configureAlwaysOnTopButton()
         let pasteInputButton = makeButton(title: "读剪贴板", action: #selector(pasteInputClicked))
-        let translateButton = makeButton(title: "翻译", action: #selector(translateClicked), emphasized: true)
-        let headerActions = NSStackView(views: [pasteInputButton, translateButton])
+        let headerActions = NSStackView(views: [alwaysOnTopButton, pasteInputButton])
         headerActions.orientation = .horizontal
+        headerActions.alignment = .centerY
         headerActions.spacing = 8
 
         let targetLanguageLabel = NSTextField(labelWithString: "目标语言")
@@ -123,7 +141,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         targetLanguagePopup.action = #selector(targetLanguageChanged)
         targetLanguagePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let header = NSStackView(views: [targetLanguageLabel, targetLanguagePopup, spacer(), headerActions])
+        let header = NSStackView(views: [spacer(), headerActions])
         header.orientation = .horizontal
         header.alignment = .centerY
         header.distribution = .fill
@@ -133,7 +151,14 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         let sourceLabel = sectionLabel("原文")
         let resultLabel = sectionLabel("译文")
         container.addSubview(sourceLabel)
-        container.addSubview(resultLabel)
+
+        let resultHeader = NSStackView(views: [resultLabel, spacer(), targetLanguageLabel, targetLanguagePopup])
+        resultHeader.orientation = .horizontal
+        resultHeader.alignment = .centerY
+        resultHeader.distribution = .fill
+        resultHeader.spacing = 8
+        resultHeader.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(resultHeader)
 
         configureTextView(sourceTextView, editable: true, accessibilityLabel: "原文输入框")
         configureTextView(resultTextView, editable: false, accessibilityLabel: "译文输出框")
@@ -153,7 +178,6 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
 
         let controls = NSStackView(views: [
             makeButton(title: "粘贴到前台", action: #selector(pasteResultClicked)),
-            makeButton(title: "交换", action: #selector(swapClicked)),
             makeButton(title: "清空", action: #selector(clearClicked))
         ])
         controls.orientation = .horizontal
@@ -166,6 +190,8 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         let headerTopClearance: CGFloat = 10
 
         NSLayoutConstraint.activate([
+            alwaysOnTopButton.widthAnchor.constraint(equalToConstant: 30),
+            alwaysOnTopButton.heightAnchor.constraint(equalToConstant: 28),
             targetLanguagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
             targetLanguagePopup.widthAnchor.constraint(lessThanOrEqualToConstant: 282),
 
@@ -188,13 +214,13 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
             sourceScrollView.heightAnchor.constraint(equalTo: resultContainer.heightAnchor),
             sourceScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
-            resultLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            resultLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            resultLabel.topAnchor.constraint(equalTo: sourceScrollView.bottomAnchor, constant: 12),
+            resultHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            resultHeader.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            resultHeader.topAnchor.constraint(equalTo: sourceScrollView.bottomAnchor, constant: 12),
 
             resultContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             resultContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            resultContainer.topAnchor.constraint(equalTo: resultLabel.bottomAnchor, constant: 6),
+            resultContainer.topAnchor.constraint(equalTo: resultHeader.bottomAnchor, constant: 6),
             resultContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
             resultScrollView.leadingAnchor.constraint(equalTo: resultContainer.leadingAnchor),
@@ -268,10 +294,15 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     }
 
 
-    private func scheduleTranslation() {
+    private func scheduleTranslation(waitingForInputToStop: Bool = false) {
         debounceTask?.cancel()
         guard settings.autoTranslate else { return }
-        let delay = UInt64(max(settings.debounceMilliseconds, 150)) * 1_000_000
+        let configuredDelay = min(
+            max(settings.debounceMilliseconds, minimumDebounceMilliseconds),
+            maximumDebounceMilliseconds
+        )
+        let delayMilliseconds = waitingForInputToStop ? maximumDebounceMilliseconds : configuredDelay
+        let delay = UInt64(delayMilliseconds) * 1_000_000
         debounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
@@ -293,41 +324,43 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         guard !text.isEmpty else {
             resultTextView.string = ""
             lastResult = ""
-            setStatus("Ready")
+            setStatus("就绪")
             return
         }
 
         let requestSettings = settings
-        setStatus("Translating...")
+        setStatus("翻译中…")
         onTranslationActivityChanged(true)
         defer { onTranslationActivityChanged(false) }
 
         do {
-            let translated = try await translationService.translate(text, settings: requestSettings)
+            let translated = try await translateText(text, requestSettings)
             guard currentRequestID == requestID else { return }
             lastResult = translated
             resultTextView.string = translated
             if requestSettings.autoCopy {
                 pasteboardService.writeText(translated)
+                onUserNotification("已复制译文")
             }
             if requestSettings.autoPaste {
+                guard ensurePastePermission() else {
+                    setStatus("自动粘贴需要辅助功能权限")
+                    return
+                }
                 try await pasteboardService.pasteIntoFrontmostApp(translated, hiding: view.window)
+                onUserNotification("已自动粘贴")
             }
-            setStatus(requestSettings.autoCopy ? "Done · copied" : "Done")
+            setStatus(requestSettings.autoCopy ? "已完成并复制" : "已完成")
         } catch {
             guard currentRequestID == requestID else { return }
             lastResult = ""
             resultTextView.string = ""
-            setStatus(error.localizedDescription)
+            setStatus(TranslationService.userFacingErrorMessage(error, provider: requestSettings.provider))
         }
     }
 
     private func currentSettingsFromToggles() -> AppSettings {
         settings
-    }
-
-    @objc private func translateClicked() {
-        translateCurrentText()
     }
 
     @objc private func pasteInputClicked() {
@@ -339,17 +372,11 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         guard !result.isEmpty else { return }
         pasteboardService.writeText(result)
         setStatus("已复制")
+        onUserNotification("已复制")
     }
 
     @objc private func pasteResultClicked() {
         pasteResult()
-    }
-
-    @objc private func swapClicked() {
-        let source = sourceTextView.string
-        sourceTextView.string = resultTextView.string
-        resultTextView.string = source
-        scheduleTranslation()
     }
 
     @objc private func targetLanguageChanged() {
@@ -361,11 +388,17 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
         scheduleTranslation()
     }
 
+    @objc private func alwaysOnTopClicked() {
+        var next = settings
+        next.alwaysOnTop.toggle()
+        onSettingsChanged(next)
+    }
+
     @objc private func clearClicked() {
         sourceTextView.string = ""
         resultTextView.string = ""
         lastResult = ""
-        setStatus("Ready")
+        setStatus("就绪")
     }
 
     private func makeButton(title: String, action: Selector, emphasized: Bool = false) -> NSButton {
@@ -375,6 +408,30 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
             button.keyEquivalent = "\r"
         }
         return button
+    }
+
+    private func configureAlwaysOnTopButton() {
+        alwaysOnTopButton.target = self
+        alwaysOnTopButton.action = #selector(alwaysOnTopClicked)
+        alwaysOnTopButton.bezelStyle = .rounded
+        alwaysOnTopButton.imagePosition = .imageOnly
+        alwaysOnTopButton.setButtonType(.toggle)
+        alwaysOnTopButton.translatesAutoresizingMaskIntoConstraints = false
+        alwaysOnTopButton.setContentHuggingPriority(.required, for: .horizontal)
+        alwaysOnTopButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        updateAlwaysOnTopButton()
+    }
+
+    private func updateAlwaysOnTopButton() {
+        alwaysOnTopButton.state = settings.alwaysOnTop ? .on : .off
+        alwaysOnTopButton.toolTip = settings.alwaysOnTop ? "取消置顶" : "置顶窗口"
+        let symbolName = settings.alwaysOnTop ? "pin.fill" : "pin"
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "置顶") {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+            alwaysOnTopButton.image = image.withSymbolConfiguration(configuration) ?? image
+        } else {
+            alwaysOnTopButton.title = "置顶"
+        }
     }
 
     private func spacer() -> NSView {
