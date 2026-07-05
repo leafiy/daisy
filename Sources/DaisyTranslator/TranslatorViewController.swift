@@ -80,7 +80,7 @@ final class TranslatorViewController: NSViewController, NSTextViewDelegate {
     }
 
     func pullClipboardAndTranslate() {
-        let text = pasteboardService.readText()
+        let text = pasteboardService.readTextVerified()
         guard !text.isEmpty else {
             setStatus("剪贴板为空")
             return

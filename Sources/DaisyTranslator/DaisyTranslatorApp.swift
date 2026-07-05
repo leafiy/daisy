@@ -449,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func translateClipboardAndCopyWithoutWindow() {
-        let text = pasteboardService.readText().trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = pasteboardService.readTextVerified().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             showToast("剪贴板为空")
             return
