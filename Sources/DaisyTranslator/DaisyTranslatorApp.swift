@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appleTranslationService = AppleSystemTranslationService()
     private let pasteboardService = PasteboardService()
     private let hotKeyCenter = HotKeyCenter()
+    private let quickTranslatePopup = QuickTranslatePopupController()
     private var statusItem: NSStatusItem?
 
     private var window: NSWindow?
@@ -131,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyWindowBehavior()
         updateClipboardWatcher()
         registerHotKeys()
+        configureQuickTranslatePopup()
         NSApp.activate(ignoringOtherApps: true)
         showOnboardingIfNeeded()
         prepareAppleSystemTranslationIfNeeded()
@@ -294,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .translateClipboard:
                 self.viewController?.pullClipboardAndTranslate()
             case .quickTranslateSelection:
-                self.translateSelectionAndCopyWithoutWindow()
+                self.translateSelectionWithoutWindow()
             case .toggleAlwaysOnTop:
                 var next = self.settings
                 next.alwaysOnTop.toggle()
@@ -305,6 +307,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             quickTranslateEnabled: settings.quickTranslateEnabled,
             quickTranslateShortcut: settings.quickTranslateShortcut
         )
+    }
+
+    private func configureQuickTranslatePopup() {
+        quickTranslatePopup.onAutoCopyChanged = { [weak self] enabled, text in
+            guard let self else { return }
+            var next = self.settings
+            next.quickTranslateAutoCopy = enabled
+            self.saveSettings(next)
+            guard enabled else { return }
+            self.showStatusMessage(self.pasteboardService.writeText(text) ? "已复制" : "复制失败，请重试")
+        }
     }
 
     private func createMenu() {
@@ -463,9 +476,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startQuickTranslation { text }
     }
 
-    private func translateSelectionAndCopyWithoutWindow() {
+    private func translateSelectionWithoutWindow() {
         guard ensureAccessibilityPermission() else { return }
-        startQuickTranslation { [pasteboardService] in
+        // Snapshot the selection bounds before Cmd+C and the translation
+        // round-trip; focus may move while the request is in flight.
+        let anchor = QuickTranslatePopupController.currentSelectionRect()
+        startQuickTranslation(presenting: .popup(anchor: anchor)) { [pasteboardService] in
             let selection = try await pasteboardService.copySelectedTextFromFrontmostApp()?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let selection, !selection.isEmpty else { return nil }
@@ -473,7 +489,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func startQuickTranslation(_ makeSourceText: @escaping @MainActor () async throws -> String?) {
+    private enum QuickTranslationPresentation {
+        case clipboard
+        case popup(anchor: NSRect?)
+    }
+
+    /// Runs a background translation with menu-bar progress feedback.
+    /// `.clipboard` writes the result to the pasteboard; `.popup` shows the
+    /// floating result toolbar and copies only when 快捷翻译自动复制 is on.
+    private func startQuickTranslation(
+        presenting presentation: QuickTranslationPresentation = .clipboard,
+        _ makeSourceText: @escaping @MainActor () async throws -> String?
+    ) {
         clipboardShortcutTask?.cancel()
         let settingsSnapshot = settings
         clipboardShortcutTask = Task { @MainActor [weak self] in
@@ -488,10 +515,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
-                if self.pasteboardService.writeText(translated) {
-                    self.showStatusMessage("已翻译并复制")
-                } else {
-                    self.showStatusMessage("翻译完成，但复制失败，请重试")
+                switch presentation {
+                case .clipboard:
+                    if self.pasteboardService.writeText(translated) {
+                        self.showStatusMessage("已翻译并复制")
+                    } else {
+                        self.showStatusMessage("翻译完成，但复制失败，请重试")
+                    }
+                case .popup(let anchor):
+                    let autoCopy = settingsSnapshot.quickTranslateAutoCopy
+                    if autoCopy, !self.pasteboardService.writeText(translated) {
+                        self.showStatusMessage("翻译完成，但复制失败，请重试")
+                    }
+                    self.quickTranslatePopup.show(text: translated, autoCopyEnabled: autoCopy, above: anchor)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -1380,6 +1416,7 @@ private final class SettingsWindowController: NSWindowController {
     private let apiKeyField = NSSecureTextField()
     private let modelField = NSTextField()
     private let quickTranslateCheckbox = NSButton(checkboxWithTitle: "快捷翻译", target: nil, action: nil)
+    private let quickTranslateAutoCopyCheckbox = NSButton(checkboxWithTitle: "快捷翻译自动复制", target: nil, action: nil)
     private let autoTranslateCheckbox = NSButton(checkboxWithTitle: "自动翻译", target: nil, action: nil)
     private let watchClipboardCheckbox = NSButton(checkboxWithTitle: "监听剪贴板", target: nil, action: nil)
     private let autoCopyCheckbox = NSButton(checkboxWithTitle: "自动复制", target: nil, action: nil)
@@ -1529,8 +1566,9 @@ private final class SettingsWindowController: NSWindowController {
     private func makeWorkflowView() -> NSView {
         shortcutField.placeholderString = "Command+Shift+V"
         let grid = NSGridView(views: [
-            [quickTranslateCheckbox, formLabel("后台翻译剪贴板并复制译文")],
+            [quickTranslateCheckbox, formLabel("翻译选中文本并在弹出工具条中显示译文")],
             [formLabel("快捷键"), shortcutField],
+            [quickTranslateAutoCopyCheckbox, formLabel("弹出译文时自动写入剪贴板")],
             [autoTranslateCheckbox, formLabel("输入停止后自动翻译")],
             [watchClipboardCheckbox, formLabel("剪贴板变化后自动读取并翻译")],
             [autoCopyCheckbox, formLabel("翻译完成后写入剪贴板")],
@@ -1576,6 +1614,7 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
         providerPopup.selectItem(at: ModelProvider.allCases.firstIndex(of: settings.provider) ?? 0)
         showProviderConfiguration(settings.provider)
         quickTranslateCheckbox.state = settings.quickTranslateEnabled ? .on : .off
+        quickTranslateAutoCopyCheckbox.state = settings.quickTranslateAutoCopy ? .on : .off
         autoTranslateCheckbox.state = settings.autoTranslate ? .on : .off
         watchClipboardCheckbox.state = settings.watchClipboard ? .on : .off
         autoCopyCheckbox.state = settings.autoCopy ? .on : .off
@@ -1620,6 +1659,7 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
         next.model = configuration.model
         next.providerConfigurations = providerConfigurations
         next.quickTranslateEnabled = quickTranslateCheckbox.state == .on
+        next.quickTranslateAutoCopy = quickTranslateAutoCopyCheckbox.state == .on
         next.quickTranslateShortcut = shortcut
         next.autoTranslate = autoTranslateCheckbox.state == .on
         next.watchClipboard = watchClipboardCheckbox.state == .on

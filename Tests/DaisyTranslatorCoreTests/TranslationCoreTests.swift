@@ -264,6 +264,17 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(englishTargetLanguage.targetLanguage, .english)
     }
 
+    func testAppSettingsDecodingDefaultsMissingQuickTranslateAutoCopyToTrueAndReadsExplicitFalse() throws {
+        let missingQuickTranslateAutoCopy = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertTrue(missingQuickTranslateAutoCopy.quickTranslateAutoCopy)
+
+        let disabledQuickTranslateAutoCopy = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"quickTranslateAutoCopy":false}"#.utf8)
+        )
+        XCTAssertFalse(disabledQuickTranslateAutoCopy.quickTranslateAutoCopy)
+    }
+
     func testAppSettingsDefaultsHonorTargetLanguageEnvironmentOverride() {
         XCTAssertEqual(
             AppSettings.defaults(environment: ["TT_TARGET_LANGUAGE": "chinese"]).targetLanguage,

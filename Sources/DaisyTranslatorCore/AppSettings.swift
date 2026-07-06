@@ -44,6 +44,7 @@ public struct AppSettings: Codable, Equatable {
     public var alwaysOnTop: Bool
     public var quickTranslateEnabled: Bool
     public var quickTranslateShortcut: String
+    public var quickTranslateAutoCopy: Bool
     public var targetLanguage: TargetLanguage
     public var onboardingCompleted: Bool
 
@@ -63,6 +64,7 @@ public struct AppSettings: Codable, Equatable {
         alwaysOnTop: Bool,
         quickTranslateEnabled: Bool = false,
         quickTranslateShortcut: String = "Command+Shift+V",
+        quickTranslateAutoCopy: Bool = true,
         provider: ModelProvider = .appleSystem,
         targetLanguage: TargetLanguage = .auto,
         onboardingCompleted: Bool = false
@@ -76,6 +78,7 @@ public struct AppSettings: Codable, Equatable {
         self.providerConfigurations = providerConfigurations
         self.quickTranslateEnabled = quickTranslateEnabled
         self.quickTranslateShortcut = quickTranslateShortcut
+        self.quickTranslateAutoCopy = quickTranslateAutoCopy
         self.temperature = temperature
         self.topP = topP
         self.maxTokens = maxTokens
@@ -111,6 +114,7 @@ public struct AppSettings: Codable, Equatable {
             alwaysOnTop: false,
             quickTranslateEnabled: false,
             quickTranslateShortcut: "Command+Shift+V",
+            quickTranslateAutoCopy: true,
             provider: provider,
             targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto
         )
@@ -199,6 +203,7 @@ public struct AppSettings: Codable, Equatable {
         case alwaysOnTop
         case quickTranslateEnabled
         case quickTranslateShortcut
+        case quickTranslateAutoCopy
         case targetLanguage
         case onboardingCompleted
     }
@@ -234,6 +239,7 @@ public struct AppSettings: Codable, Equatable {
         quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
         targetLanguage = try container.decodeIfPresent(TargetLanguage.self, forKey: .targetLanguage) ?? defaults.targetLanguage
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut
+        quickTranslateAutoCopy = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateAutoCopy) ?? defaults.quickTranslateAutoCopy
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
     }
 }
