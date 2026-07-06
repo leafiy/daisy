@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showToast(message)
             },
             ensurePastePermission: { [weak self] in
-                self?.ensureAccessibilityPermissionForPaste() ?? false
+                self?.ensureAccessibilityPermission() ?? false
             }
         )
         let window = NSWindow(
@@ -288,8 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch hotKey {
             case .translateClipboard:
                 self.viewController?.pullClipboardAndTranslate()
-            case .quickTranslateClipboard:
-                self.translateClipboardAndCopyWithoutWindow()
+            case .quickTranslateSelection:
+                self.translateSelectionAndCopyWithoutWindow()
             case .toggleAlwaysOnTop:
                 var next = self.settings
                 next.alwaysOnTop.toggle()
@@ -454,15 +454,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showToast("剪贴板为空")
             return
         }
+        startQuickTranslation { text }
+    }
 
+    private func translateSelectionAndCopyWithoutWindow() {
+        guard ensureAccessibilityPermission() else { return }
+        startQuickTranslation { [pasteboardService] in
+            let selection = try await pasteboardService.copySelectedTextFromFrontmostApp()?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let selection, !selection.isEmpty else { return nil }
+            return selection
+        }
+    }
+
+    private func startQuickTranslation(_ makeSourceText: @escaping @MainActor () async throws -> String?) {
         clipboardShortcutTask?.cancel()
-        showToast("翻译中…")
+        // Stays visible until a completion toast replaces it.
+        showToast("翻译中…", autoHide: false)
         let settingsSnapshot = settings
         clipboardShortcutTask = Task { @MainActor [weak self] in
             guard let self else { return }
             self.setTranslationInProgress(true)
             defer { self.setTranslationInProgress(false) }
             do {
+                guard let text = try await makeSourceText() else {
+                    self.showToast("未选中文本")
+                    return
+                }
+                guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
                 if self.pasteboardService.writeText(translated) {
@@ -699,14 +718,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func ensureAccessibilityPermissionForPaste() -> Bool {
+    private func ensureAccessibilityPermission() -> Bool {
         if AXIsProcessTrusted() {
             return true
         }
 
         let alert = NSAlert()
-        alert.messageText = "允许 Daisy 自动粘贴"
-        alert.informativeText = "自动粘贴需要 macOS 辅助功能权限。Daisy 只会在你启用自动粘贴或点击粘贴到前台时发送 Cmd+V。"
+        alert.messageText = "允许 Daisy 控制键盘"
+        alert.informativeText = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "打开系统设置")
         alert.addButton(withTitle: "稍后")
@@ -723,7 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AXIsProcessTrusted()
     }
 
-    private func showToast(_ message: String) {
+    private func showToast(_ message: String, autoHide: Bool = true) {
         toastWindow?.orderOut(nil)
 
         let width = min(max(CGFloat(message.count * 9 + 44), 160), 420)
@@ -766,6 +785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
         toastWindow = panel
 
+        guard autoHide else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self, weak panel] in
             guard let panel else { return }
             panel.orderOut(nil)
@@ -1012,11 +1032,14 @@ private final class AppleSystemTranslationImplementation {
 
     func translate(_ text: String, targetLanguage: TargetLanguage) async throws -> String {
         let target = await supportedLanguage(for: targetLanguageIdentifier(for: text, targetLanguage: targetLanguage))
-        let source = await detectedSourceLanguage(for: text)
+        var source = await detectedSourceLanguage(for: text)
+        if let detected = source, detected.languageCode == target.languageCode {
+            // Same-language pairing would "translate" the text into itself
+            // and return the input unchanged; let the session auto-detect
+            // the real source instead.
+            source = nil
+        }
         if let source {
-            if source.languageCode == target.languageCode {
-                return text
-            }
             guard await isAvailable(source: source, target: target) else {
                 throw DaisyTranslatorCore.TranslationError.appleSystemTranslationUnsupported
             }
@@ -1121,62 +1144,91 @@ private final class AppleSystemTranslationImplementation {
 @MainActor
 private final class AppleSystemTranslationBridgeModel: ObservableObject {
     @Published var configuration: TranslationSession.Configuration?
-    private var pending: PendingRequest?
-    private var requestID = 0
+
+    private var queue: [PendingRequest] = []
+    private var active: PendingRequest?
     private var timeoutTask: Task<Void, Never>?
+    private var nextRequestID = 0
 
     func translate(_ text: String, source: Locale.Language?, target: Locale.Language) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
-            begin(
-                kind: .translate(text),
-                source: source,
-                target: target,
-                continuation: continuation
-            )
+            enqueue(kind: .translate(text), source: source, target: target, continuation: continuation)
         }
     }
 
     func prepare(source: Locale.Language?, target: Locale.Language) async throws {
         let _: String = try await withCheckedThrowingContinuation { continuation in
-            begin(kind: .prepare, source: source, target: target, continuation: continuation)
+            enqueue(kind: .prepare, source: source, target: target, continuation: continuation)
         }
     }
 
-    private func begin(
+    /// Requests are strictly serialized: at most one unresolved request per
+    /// published configuration, and `run` only executes the request the
+    /// current configuration was published for. The previous design let an
+    /// in-flight `run` — whose session was built for an older configuration
+    /// — adopt a newer pending request and translate it with a
+    /// wrong-direction session; Apple then returns the input unchanged and
+    /// the request "succeeds" without translating anything.
+    private func enqueue(
         kind: PendingRequest.Kind,
         source: Locale.Language?,
         target: Locale.Language,
         continuation: CheckedContinuation<String, Error>
     ) {
-        pending?.continuation.resume(throwing: CancellationError())
-        timeoutTask?.cancel()
-        requestID += 1
-        pending = PendingRequest(
-            id: requestID,
+        nextRequestID += 1
+        let request = PendingRequest(
+            id: nextRequestID,
             kind: kind,
+            source: source,
+            target: target,
             continuation: continuation
         )
-        let currentID = requestID
-        timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 25_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.fail(
-                requestID: currentID,
-                error: DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed("系统翻译超时，请稍后重试")
-            )
+        if request.isTranslate {
+            // A newer translation supersedes queued and in-flight ones.
+            for queued in queue where queued.isTranslate {
+                queued.finish(throwing: CancellationError())
+            }
+            queue.removeAll { $0.isFinished }
+            if let active, active.isTranslate {
+                // Unblock the caller immediately; the slot is freed once
+                // the in-flight run resolves or times out.
+                active.finish(throwing: CancellationError())
+            }
         }
-        if var currentConfiguration = configuration,
-           currentConfiguration.source == source,
-           currentConfiguration.target == target {
-            currentConfiguration.invalidate()
-            configuration = currentConfiguration
+        queue.append(request)
+        pump()
+    }
+
+    private func pump() {
+        guard active == nil else { return }
+        while let request = queue.first, request.isFinished {
+            queue.removeFirst()
+        }
+        guard !queue.isEmpty else { return }
+        let request = queue.removeFirst()
+        active = request
+        startTimeout(for: request.id)
+        if var current = configuration,
+           current.source == request.source,
+           current.target == request.target {
+            current.invalidate()
+            configuration = current
         } else {
-            configuration = TranslationSession.Configuration(source: source, target: target)
+            configuration = TranslationSession.Configuration(source: request.source, target: request.target)
         }
     }
 
     func run(session: TranslationSession) async {
-        guard let request = pending else { return }
+        // A superseded translationTask invocation can still execute its
+        // body; it must not adopt the current request with its outdated
+        // session.
+        guard !Task.isCancelled else { return }
+        guard let request = active, !request.isTaken else { return }
+        if request.isFinished {
+            resolveActive(request.id)
+            return
+        }
+        request.isTaken = true
         do {
             try await session.prepareTranslation()
             switch request.kind {
@@ -1206,22 +1258,38 @@ private final class AppleSystemTranslationBridgeModel: ObservableObject {
     }
 
     private func complete(requestID: Int, result: String) {
-        guard pending?.id == requestID else { return }
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        pending?.continuation.resume(returning: result)
-        pending = nil
+        guard let request = active, request.id == requestID else { return }
+        request.finish(returning: result)
+        resolveActive(requestID)
     }
 
     private func fail(requestID: Int, error: Error) {
-        guard pending?.id == requestID else { return }
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        pending?.continuation.resume(throwing: error)
-        pending = nil
+        guard let request = active, request.id == requestID else { return }
+        request.finish(throwing: error)
+        resolveActive(requestID)
     }
 
-    private struct PendingRequest {
+    private func resolveActive(_ requestID: Int) {
+        guard active?.id == requestID else { return }
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        active = nil
+        pump()
+    }
+
+    private func startTimeout(for requestID: Int) {
+        timeoutTask?.cancel()
+        timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.fail(
+                requestID: requestID,
+                error: DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed("系统翻译超时，请稍后重试")
+            )
+        }
+    }
+
+    private final class PendingRequest {
         enum Kind {
             case prepare
             case translate(String)
@@ -1229,7 +1297,44 @@ private final class AppleSystemTranslationBridgeModel: ObservableObject {
 
         let id: Int
         let kind: Kind
-        let continuation: CheckedContinuation<String, Error>
+        let source: Locale.Language?
+        let target: Locale.Language
+        var isTaken = false
+        private(set) var isFinished = false
+        private var continuation: CheckedContinuation<String, Error>?
+
+        init(
+            id: Int,
+            kind: Kind,
+            source: Locale.Language?,
+            target: Locale.Language,
+            continuation: CheckedContinuation<String, Error>
+        ) {
+            self.id = id
+            self.kind = kind
+            self.source = source
+            self.target = target
+            self.continuation = continuation
+        }
+
+        var isTranslate: Bool {
+            if case .translate = kind { return true }
+            return false
+        }
+
+        func finish(returning result: String) {
+            guard !isFinished else { return }
+            isFinished = true
+            continuation?.resume(returning: result)
+            continuation = nil
+        }
+
+        func finish(throwing error: Error) {
+            guard !isFinished else { return }
+            isFinished = true
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
     }
 }
 

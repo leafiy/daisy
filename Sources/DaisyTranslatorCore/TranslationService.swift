@@ -265,12 +265,22 @@ public struct TranslationService {
     }
 
     public static func translatesToEnglish(source: String, preference: TargetLanguage) -> Bool {
+        let containsChinese = containsChineseText(source)
         switch preference {
         case .auto:
-            return containsChineseText(source)
+            return containsChinese
         case .english:
+            // English-only source with an English target would round-trip
+            // unchanged; translate to Chinese instead of silently no-op'ing.
+            if !containsChinese && containsLatinText(source) {
+                return false
+            }
             return true
         case .chinese:
+            // Chinese-only source with a Chinese target likewise flips.
+            if containsChinese && !containsLatinText(source) {
+                return true
+            }
             return false
         }
     }
@@ -609,6 +619,12 @@ public struct TranslationService {
 
     private static func containsChineseText(_ text: String) -> Bool {
         text.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) }
+    }
+
+    private static func containsLatinText(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            (0x0041...0x005a).contains($0.value) || (0x0061...0x007a).contains($0.value)
+        }
     }
 
     private static func trimBaseURL(_ baseURL: String) -> String {

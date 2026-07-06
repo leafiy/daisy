@@ -113,14 +113,50 @@ final class TranslationCoreTests: XCTestCase {
                 expected: false
             ),
             (
-                name: "English preference forces English source to English",
+                name: "already-English source flips to Chinese to avoid identity translation",
                 source: "Ship the release notes today.",
+                preference: .english,
+                expected: false
+            ),
+            (
+                name: "English preference translates Chinese-only source to English",
+                source: "今天发布版本说明。",
                 preference: .english,
                 expected: true
             ),
             (
-                name: "Chinese preference forces Han-containing source to Chinese",
+                name: "English preference honors mixed Chinese and Latin source",
+                source: "今天 ship the release notes.",
+                preference: .english,
+                expected: true
+            ),
+            (
+                name: "already-Chinese source flips to English to avoid identity translation",
                 source: "今天发布版本说明。",
+                preference: .chinese,
+                expected: true
+            ),
+            (
+                name: "Chinese preference translates English-only source to Chinese",
+                source: "Ship the release notes today.",
+                preference: .chinese,
+                expected: false
+            ),
+            (
+                name: "Chinese preference honors mixed Chinese and Latin source",
+                source: "今天 ship the release notes.",
+                preference: .chinese,
+                expected: false
+            ),
+            (
+                name: "English preference translates scriptless source to English",
+                source: "12345",
+                preference: .english,
+                expected: true
+            ),
+            (
+                name: "Chinese preference translates scriptless source to Chinese",
+                source: "12345",
                 preference: .chinese,
                 expected: false
             )
@@ -139,15 +175,15 @@ final class TranslationCoreTests: XCTestCase {
         let englishMessages = try makeOpenAICompatibleMessages(source: "Ship it", targetLanguage: .english)
         assertTranslationMessages(
             englishMessages,
-            expectedContent: chineseToEnglishPrompt(source: "Ship it"),
-            "English preference forces to-English prompt for English source"
+            expectedContent: englishToChinesePrompt(source: "Ship it"),
+            "already-English source flips to Chinese prompt to avoid identity translation"
         )
 
         let chineseMessages = try makeOpenAICompatibleMessages(source: "你好", targetLanguage: .chinese)
         assertTranslationMessages(
             chineseMessages,
-            expectedContent: englishToChinesePrompt(source: "你好"),
-            "Chinese preference forces to-Chinese prompt for Han source"
+            expectedContent: chineseToEnglishPrompt(source: "你好"),
+            "already-Chinese source flips to English prompt to avoid identity translation"
         )
     }
 
@@ -472,16 +508,16 @@ final class TranslationCoreTests: XCTestCase {
     func testMakeRequestGoogleFreeGETHonorsTargetLanguagePreferenceOverAutoDetection() throws {
         let cases: [(name: String, source: String, preference: TargetLanguage, expectedTarget: String)] = [
             (
-                name: "English preference forces English source to English",
+                name: "already-English source flips to Simplified Chinese to avoid identity translation",
                 source: "Ship the release notes today.",
                 preference: .english,
-                expectedTarget: "en"
+                expectedTarget: "zh-CN"
             ),
             (
-                name: "Chinese preference forces Han-containing source to Simplified Chinese",
+                name: "already-Chinese source flips to English to avoid identity translation",
                 source: "今天发布版本说明。",
                 preference: .chinese,
-                expectedTarget: "zh-CN"
+                expectedTarget: "en"
             )
         ]
 
@@ -579,16 +615,16 @@ final class TranslationCoreTests: XCTestCase {
     func testMakeBaiduTranslateRequestHonorsTargetLanguagePreferenceOverAutoDetection() throws {
         let cases: [(name: String, source: String, preference: TargetLanguage, expectedTarget: String)] = [
             (
-                name: "English preference forces English source to English",
+                name: "already-English source flips to Chinese to avoid identity translation",
                 source: "Ship the release notes today.",
                 preference: .english,
-                expectedTarget: "en"
+                expectedTarget: "zh"
             ),
             (
-                name: "Chinese preference forces Han-containing source to Chinese",
+                name: "already-Chinese source flips to English to avoid identity translation",
                 source: "今天发布版本说明。",
                 preference: .chinese,
-                expectedTarget: "zh"
+                expectedTarget: "en"
             )
         ]
 

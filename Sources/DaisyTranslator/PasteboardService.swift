@@ -61,6 +61,29 @@ final class PasteboardService {
         return false
     }
 
+    /// Copies the frontmost app's current selection by synthesizing Cmd+C
+    /// and waiting for the pasteboard to change. Returns nil when nothing
+    /// was selected (the pasteboard stays untouched in that case).
+    /// Requires accessibility permission.
+    func copySelectedTextFromFrontmostApp() async throws -> String? {
+        let pasteboard = NSPasteboard.general
+        let changeCountBefore = pasteboard.changeCount
+        try runAppleScript("""
+tell application "System Events"
+  keystroke "c" using command down
+end tell
+""")
+        // Give the frontmost app time to service the copy; apps with
+        // asynchronous clipboards (browsers) can take a few hundred ms.
+        for _ in 0..<8 {
+            try await Task.sleep(nanoseconds: 60_000_000)
+            if pasteboard.changeCount != changeCountBefore {
+                return pasteboard.string(forType: .string)
+            }
+        }
+        return nil
+    }
+
     func pasteIntoFrontmostApp(_ text: String, hiding window: NSWindow?) async throws {
         guard writeText(text) else {
             throw PasteboardError.writeFailed

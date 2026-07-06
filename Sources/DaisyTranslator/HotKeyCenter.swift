@@ -4,7 +4,7 @@ import Foundation
 final class HotKeyCenter {
     enum HotKey: UInt32 {
         case translateClipboard = 1
-        case quickTranslateClipboard = 2
+        case quickTranslateSelection = 2
         case toggleAlwaysOnTop = 3
     }
 
@@ -53,7 +53,7 @@ final class HotKeyCenter {
         register(keyCode: UInt32(kVK_ANSI_T), modifiers: cmdKey | shiftKey, id: .translateClipboard)
         register(keyCode: UInt32(kVK_ANSI_O), modifiers: cmdKey | shiftKey, id: .toggleAlwaysOnTop)
         if quickTranslateEnabled, let shortcut = Self.parseShortcut(quickTranslateShortcut) {
-            register(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, id: .quickTranslateClipboard)
+            register(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, id: .quickTranslateSelection)
         }
     }
 
