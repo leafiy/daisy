@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 
 @MainActor
@@ -68,11 +69,7 @@ final class PasteboardService {
     func copySelectedTextFromFrontmostApp() async throws -> String? {
         let pasteboard = NSPasteboard.general
         let changeCountBefore = pasteboard.changeCount
-        try runAppleScript("""
-tell application "System Events"
-  keystroke "c" using command down
-end tell
-""")
+        try sendCommandKeystroke(kVK_ANSI_C)
         // Give the frontmost app time to service the copy; apps with
         // asynchronous clipboards (browsers) can take a few hundred ms.
         for _ in 0..<8 {
@@ -94,11 +91,7 @@ end tell
         }
 
         try await Task.sleep(nanoseconds: 120_000_000)
-        try runAppleScript("""
-tell application "System Events"
-  keystroke "v" using command down
-end tell
-""")
+        try sendCommandKeystroke(kVK_ANSI_V)
 
         if wasVisible {
             try await Task.sleep(nanoseconds: 180_000_000)
@@ -164,31 +157,35 @@ end tell
         return process.terminationStatus == 0
     }
 
-    private func runAppleScript(_ source: String) throws {
-        var error: NSDictionary?
-        guard let script = NSAppleScript(source: source) else {
-            throw PasteboardError.invalidAppleScript
+    /// Posts Cmd+<key> as CGEvents. Unlike AppleScript keystrokes through
+    /// System Events, this needs only the Accessibility permission — no
+    /// Automation (Apple Events) consent and no hardened-runtime
+    /// apple-events entitlement, both of which silently break in signed
+    /// release builds.
+    private func sendCommandKeystroke(_ virtualKey: Int) throws {
+        guard let source = CGEventSource(stateID: .combinedSessionState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(virtualKey), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(virtualKey), keyDown: false) else {
+            throw PasteboardError.keystrokeFailed
         }
-        script.executeAndReturnError(&error)
-        if let error {
-            throw PasteboardError.appleScriptFailed(error[NSAppleScript.errorMessage] as? String ?? "未知 AppleScript 错误")
-        }
+        // Explicit flags override any physically held hotkey modifiers.
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
     }
 }
 
 enum PasteboardError: LocalizedError {
-    case invalidAppleScript
     case writeFailed
-    case appleScriptFailed(String)
+    case keystrokeFailed
 
     var errorDescription: String? {
         switch self {
-        case .invalidAppleScript:
-            return "AppleScript 无效"
         case .writeFailed:
             return "写入剪贴板失败，请重试"
-        case let .appleScriptFailed(message):
-            return message
+        case .keystrokeFailed:
+            return "发送按键失败，请检查辅助功能权限"
         }
     }
 }
