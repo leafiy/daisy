@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import QuartzCore
 import SwiftUI
 import DaisyTranslatorCore
 #if canImport(Translation)
@@ -112,7 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardTimer: Timer?
     private var lastClipboardText = ""
     private var clipboardShortcutTask: Task<Void, Never>?
-    private var toastWindow: NSWindow?
+    private var statusIconImage: NSImage?
+    private var statusSpinner: NSProgressIndicator?
+    private var statusMessageClearTask: DispatchWorkItem?
     private var settingsWindowController: SettingsWindowController?
     private var shouldShowOnboarding = false
     private var activeTranslationCount = 0
@@ -136,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
-        toastWindow?.orderOut(nil)
+        statusMessageClearTask?.cancel()
         hotKeyCenter.unregister()
     }
 
@@ -159,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.setTranslationInProgress(isActive)
             },
             onUserNotification: { [weak self] message in
-                self?.showToast(message)
+                self?.showStatusMessage(message)
             },
             ensurePastePermission: { [weak self] in
                 self?.ensureAccessibilityPermission() ?? false
@@ -272,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isActive {
             activeTranslationCount += 1
             isClipboardWatcherPaused = true
+            setStatusSpinnerVisible(true)
             return
         }
 
@@ -279,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if activeTranslationCount == 0 {
             isClipboardWatcherPaused = false
             lastClipboardText = pasteboardService.readText()
+            setStatusSpinnerVisible(false)
         }
     }
 
@@ -351,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 image.isTemplate = false
                 image.size = NSSize(width: 18, height: 18)
                 button.image = image
+                statusIconImage = image
             } else {
                 button.title = "daisy"
             }
@@ -451,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func translateClipboardAndCopyWithoutWindow() {
         let text = pasteboardService.readTextVerified().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            showToast("剪贴板为空")
+            showStatusMessage("剪贴板为空")
             return
         }
         startQuickTranslation { text }
@@ -469,8 +475,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startQuickTranslation(_ makeSourceText: @escaping @MainActor () async throws -> String?) {
         clipboardShortcutTask?.cancel()
-        // Stays visible until a completion toast replaces it.
-        showToast("翻译中…", autoHide: false)
         let settingsSnapshot = settings
         clipboardShortcutTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -478,23 +482,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { self.setTranslationInProgress(false) }
             do {
                 guard let text = try await makeSourceText() else {
-                    self.showToast("未选中文本")
+                    self.showStatusMessage("未选中文本")
                     return
                 }
                 guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
                 if self.pasteboardService.writeText(translated) {
-                    self.showToast("已翻译并复制")
+                    self.showStatusMessage("已翻译并复制")
                 } else {
-                    self.showToast("翻译完成，但复制失败，请重试")
+                    self.showStatusMessage("翻译完成，但复制失败，请重试")
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 let message = String(
                     TranslationService.userFacingErrorMessage(error, provider: settingsSnapshot.provider).prefix(40)
                 )
-                self.showToast("翻译失败：\(message)")
+                self.showStatusMessage("翻译失败：\(message)")
             }
         }
     }
@@ -742,56 +746,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AXIsProcessTrusted()
     }
 
-    private func showToast(_ message: String, autoHide: Bool = true) {
-        toastWindow?.orderOut(nil)
-
-        let width = min(max(CGFloat(message.count * 9 + 44), 160), 420)
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: 44),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.level = .statusBar
-        panel.ignoresMouseEvents = true
-
-        let background = NSView()
-        background.translatesAutoresizingMaskIntoConstraints = false
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 12
-        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
-
-        let label = NSTextField(labelWithString: message)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.alignment = .center
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = .white
-        label.lineBreakMode = .byTruncatingTail
-
-        panel.contentView = background
-        background.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 18),
-            label.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -18),
-            label.centerYAnchor.constraint(equalTo: background.centerYAnchor)
-        ])
-
-        if let frame = NSScreen.main?.visibleFrame {
-            panel.setFrameOrigin(NSPoint(x: frame.maxX - width - 24, y: frame.maxY - 64))
+    /// Transient feedback next to the menu-bar icon (fades in and out);
+    /// replaces the old floating toast panel.
+    private func showStatusMessage(_ message: String) {
+        guard let button = statusItem?.button else { return }
+        statusMessageClearTask?.cancel()
+        applyStatusTitle(message, to: button)
+        let clear = DispatchWorkItem { [weak self] in
+            guard let self, let button = self.statusItem?.button else { return }
+            self.applyStatusTitle(self.idleStatusTitle, to: button)
+            self.statusMessageClearTask = nil
         }
+        statusMessageClearTask = clear
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: clear)
+    }
 
-        panel.orderFrontRegardless()
-        toastWindow = panel
+    private var idleStatusTitle: String {
+        statusIconImage == nil ? "daisy" : ""
+    }
 
-        guard autoHide else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self, weak panel] in
-            guard let panel else { return }
-            panel.orderOut(nil)
-            if self?.toastWindow === panel {
-                self?.toastWindow = nil
-            }
+    private func applyStatusTitle(_ title: String, to button: NSStatusBarButton) {
+        button.wantsLayer = true
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.2
+        button.layer?.add(fade, forKey: "statusMessageFade")
+        button.imagePosition = title.isEmpty ? .imageOnly : .imageLeft
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.font: NSFont.systemFont(ofSize: 12)]
+        )
+    }
+
+    /// Tiny spinner in place of the menu-bar icon while a translation is
+    /// in flight; driven by setTranslationInProgress.
+    private func setStatusSpinnerVisible(_ visible: Bool) {
+        guard let item = statusItem, let button = item.button else { return }
+        if visible {
+            guard statusSpinner == nil else { return }
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            spinner.isDisplayedWhenStopped = false
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            button.addSubview(spinner)
+            NSLayoutConstraint.activate([
+                spinner.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                spinner.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                spinner.widthAnchor.constraint(equalToConstant: 16),
+                spinner.heightAnchor.constraint(equalToConstant: 16)
+            ])
+            spinner.startAnimation(nil)
+            // Keep the item's footprint while the icon is hidden.
+            item.length = NSStatusItem.squareLength
+            button.image = nil
+            statusSpinner = spinner
+        } else {
+            guard let spinner = statusSpinner else { return }
+            spinner.stopAnimation(nil)
+            spinner.removeFromSuperview()
+            statusSpinner = nil
+            item.length = NSStatusItem.variableLength
+            button.image = statusIconImage
         }
     }
 
@@ -847,7 +864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let shortcut = shortcutField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard HotKeyCenter.isShortcutSupported(shortcut) else {
-            showToast("快捷键无效")
+            showStatusMessage("快捷键无效")
             return
         }
 
