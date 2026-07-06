@@ -725,7 +725,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = "允许 Daisy 控制键盘"
-        alert.informativeText = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。"
+        alert.informativeText = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。\n\n如果列表里 Daisy 已开启但仍弹出本提示，说明授权已因应用重新构建而失效：请在“辅助功能”列表中用“−”移除 Daisy 后重新添加。"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "打开系统设置")
         alert.addButton(withTitle: "稍后")
