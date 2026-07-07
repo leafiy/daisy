@@ -82,6 +82,132 @@ private let externalServiceProviders: [ModelProvider] = [
     .ollama
 ]
 
+@MainActor
+private final class ShortcutEditorView: NSStackView, NSTextFieldDelegate {
+    private struct ModifierOption {
+        let title: String
+        let token: String
+    }
+
+    private static let modifierOptions = [
+        ModifierOption(title: "Command", token: "Command"),
+        ModifierOption(title: "Shift", token: "Shift"),
+        ModifierOption(title: "Option", token: "Option"),
+        ModifierOption(title: "Control", token: "Control")
+    ]
+
+    private let firstModifierPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let secondModifierPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let keyField = NSTextField()
+
+    init(shortcut: String) {
+        super.init(frame: .zero)
+        orientation = .horizontal
+        alignment = .centerY
+        spacing = 8
+        translatesAutoresizingMaskIntoConstraints = false
+
+        for option in Self.modifierOptions {
+            firstModifierPopup.addItem(withTitle: option.title)
+            secondModifierPopup.addItem(withTitle: option.title)
+        }
+
+        keyField.placeholderString = "V"
+        keyField.alignment = .center
+        keyField.delegate = self
+        keyField.translatesAutoresizingMaskIntoConstraints = false
+
+        addArrangedSubview(firstModifierPopup)
+        addArrangedSubview(secondModifierPopup)
+        addArrangedSubview(keyField)
+        NSLayoutConstraint.activate([
+            firstModifierPopup.widthAnchor.constraint(equalToConstant: 118),
+            secondModifierPopup.widthAnchor.constraint(equalToConstant: 118),
+            keyField.widthAnchor.constraint(equalToConstant: 64)
+        ])
+
+        setShortcut(shortcut)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var shortcut: String? {
+        let firstModifier = Self.modifierOptions[firstModifierPopup.indexOfSelectedItem].token
+        let secondModifier = Self.modifierOptions[secondModifierPopup.indexOfSelectedItem].token
+        guard firstModifier != secondModifier else { return nil }
+
+        let key = normalizedKey(keyField.stringValue)
+        guard !key.isEmpty else { return nil }
+        return "\(firstModifier)+\(secondModifier)+\(key)"
+    }
+
+    func setShortcut(_ shortcut: String) {
+        let parts = Self.shortcutParts(from: shortcut)
+            ?? Self.shortcutParts(from: AppSettings.defaults(environment: [:]).quickTranslateShortcut)
+            ?? (["Command", "Shift"], "V")
+
+        selectModifier(parts.modifiers[0], in: firstModifierPopup)
+        selectModifier(parts.modifiers[1], in: secondModifierPopup)
+        keyField.stringValue = parts.key
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        let key = normalizedKey(keyField.stringValue)
+        if keyField.stringValue != key {
+            keyField.stringValue = key
+        }
+    }
+
+    private func normalizedKey(_ rawValue: String) -> String {
+        let allowedCharacters = rawValue.uppercased().filter { $0.isLetter || $0.isNumber }
+        return String(allowedCharacters.prefix(1))
+    }
+
+    private func selectModifier(_ modifier: String, in popup: NSPopUpButton) {
+        let index = Self.modifierOptions.firstIndex { $0.token == modifier } ?? 0
+        popup.selectItem(at: index)
+    }
+
+    private static func shortcutParts(from shortcut: String) -> (modifiers: [String], key: String)? {
+        let tokens = shortcut
+            .replacingOccurrences(of: "⌘", with: "Command+")
+            .replacingOccurrences(of: "⇧", with: "Shift+")
+            .replacingOccurrences(of: "⌥", with: "Option+")
+            .replacingOccurrences(of: "⌃", with: "Control+")
+            .split(separator: "+")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var modifiers: [String] = []
+        var key: String?
+        for token in tokens {
+            switch token.lowercased() {
+            case "command", "cmd", "commandorcontrol":
+                modifiers.append("Command")
+            case "shift":
+                modifiers.append("Shift")
+            case "option", "alt":
+                modifiers.append("Option")
+            case "control", "ctrl":
+                modifiers.append("Control")
+            default:
+                guard key == nil else { return nil }
+                key = String(token.uppercased().prefix(1))
+            }
+        }
+
+        let uniqueModifiers = modifiers.reduce(into: [String]()) { result, modifier in
+            if !result.contains(modifier) {
+                result.append(modifier)
+            }
+        }
+        guard uniqueModifiers.count >= 2, let key, !key.isEmpty else { return nil }
+        return (Array(uniqueModifiers.prefix(2)), key)
+    }
+}
+
 @main
 enum DaisyTranslatorApp {
     static func main() {
@@ -849,9 +975,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openQuickTranslateShortcutFromStatusMenu() {
-        let shortcutField = NSTextField(string: settings.quickTranslateShortcut)
-        shortcutField.placeholderString = "Command+Shift+V"
-        shortcutField.translatesAutoresizingMaskIntoConstraints = false
+        let shortcutEditor = ShortcutEditorView(shortcut: settings.quickTranslateShortcut)
 
         let label = formLabel("快捷键")
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -880,14 +1004,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .floating
 
         contentView.addSubview(label)
-        contentView.addSubview(shortcutField)
+        contentView.addSubview(shortcutEditor)
         contentView.addSubview(buttons)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            label.centerYAnchor.constraint(equalTo: shortcutField.centerYAnchor),
-            shortcutField.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
-            shortcutField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            shortcutField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 28),
+            label.centerYAnchor.constraint(equalTo: shortcutEditor.centerYAnchor),
+            shortcutEditor.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
+            shortcutEditor.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
+            shortcutEditor.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 28),
             buttons.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
             buttons.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -18)
         ])
@@ -898,7 +1022,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderOut(nil)
         guard response == .OK else { return }
 
-        let shortcut = shortcutField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let shortcut = shortcutEditor.shortcut else {
+            showStatusMessage("快捷键无效")
+            return
+        }
         guard HotKeyCenter.isShortcutSupported(shortcut) else {
             showStatusMessage("快捷键无效")
             return
@@ -1406,7 +1533,7 @@ private struct AppleSystemTranslationBridgeView: View {
 #endif
 
 @MainActor
-private final class SettingsWindowController: NSWindowController {
+private final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private var settings: AppSettings
     private var providerConfigurations: [String: ProviderConfiguration]
     private let onSave: (AppSettings) -> Void
@@ -1421,7 +1548,7 @@ private final class SettingsWindowController: NSWindowController {
     private let watchClipboardCheckbox = NSButton(checkboxWithTitle: "监听剪贴板", target: nil, action: nil)
     private let autoCopyCheckbox = NSButton(checkboxWithTitle: "自动复制", target: nil, action: nil)
     private let autoPasteCheckbox = NSButton(checkboxWithTitle: "自动粘贴", target: nil, action: nil)
-    private let shortcutField = NSTextField()
+    private let shortcutEditor: ShortcutEditorView
     private var lastSelectedProvider: ModelProvider
 
     init(settings: AppSettings, onSave: @escaping (AppSettings) -> Void) {
@@ -1436,15 +1563,16 @@ private final class SettingsWindowController: NSWindowController {
         )
         self.onSave = onSave
         self.lastSelectedProvider = settings.provider
+        self.shortcutEditor = ShortcutEditorView(shortcut: settings.quickTranslateShortcut)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 460),
+            contentRect: NSRect(origin: .zero, size: Self.contentSize(for: "service")),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
-        window.minSize = NSSize(width: 760, height: 440)
+        window.minSize = NSSize(width: 540, height: 300)
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.contentView = makeContentView()
@@ -1458,6 +1586,7 @@ private final class SettingsWindowController: NSWindowController {
     private func makeContentView() -> NSView {
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
+        tabView.delegate = self
         tabView.addTabViewItem(NSTabViewItem(identifier: "service"))
         tabView.tabViewItem(at: 0).label = "服务"
         tabView.tabViewItem(at: 0).view = makeServiceView()
@@ -1482,13 +1611,13 @@ private final class SettingsWindowController: NSWindowController {
         contentView.addSubview(tabView)
         contentView.addSubview(buttons)
         NSLayoutConstraint.activate([
-            tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            tabView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            tabView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-            tabView.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -16),
+            tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            tabView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            tabView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            tabView.bottomAnchor.constraint(equalTo: buttons.topAnchor, constant: -12),
 
-            buttons.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            buttons.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -18)
+            buttons.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            buttons.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14)
         ])
         return contentView
     }
@@ -1513,10 +1642,11 @@ private final class SettingsWindowController: NSWindowController {
             [formLabel("Model"), modelField]
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 12
-        grid.columnSpacing = 12
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 1).width = 640
+        grid.column(at: 0).width = 86
+        grid.column(at: 1).width = 410
 
         let hint = wrappingLabel("默认使用 Apple 系统翻译，不需要 API Key。OpenAI-compatible 和 Ollama 可接入你自己的服务，DeepSeek / Google / 百度可使用对应官方 API。")
         hint.translatesAutoresizingMaskIntoConstraints = false
@@ -1527,17 +1657,17 @@ private final class SettingsWindowController: NSWindowController {
         view.addSubview(links)
         view.addSubview(hint)
         NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            grid.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 22),
+            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
 
             hint.leadingAnchor.constraint(equalTo: grid.leadingAnchor),
-            hint.trailingAnchor.constraint(equalTo: grid.trailingAnchor),
+            hint.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             links.leadingAnchor.constraint(equalTo: grid.leadingAnchor),
-            links.trailingAnchor.constraint(lessThanOrEqualTo: grid.trailingAnchor),
-            links.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 16),
+            links.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            links.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 12),
 
-            hint.topAnchor.constraint(equalTo: links.bottomAnchor, constant: 16)
+            hint.topAnchor.constraint(equalTo: links.bottomAnchor, constant: 12)
         ])
         return view
     }
@@ -1564,10 +1694,9 @@ private final class SettingsWindowController: NSWindowController {
     }
 
     private func makeWorkflowView() -> NSView {
-        shortcutField.placeholderString = "Command+Shift+V"
         let grid = NSGridView(views: [
             [quickTranslateCheckbox, formLabel("翻译选中文本并在弹出工具条中显示译文")],
-            [formLabel("快捷键"), shortcutField],
+            [formLabel("快捷键"), shortcutEditor],
             [quickTranslateAutoCopyCheckbox, formLabel("弹出译文时自动写入剪贴板")],
             [autoTranslateCheckbox, formLabel("输入停止后自动翻译")],
             [watchClipboardCheckbox, formLabel("剪贴板变化后自动读取并翻译")],
@@ -1575,17 +1704,18 @@ private final class SettingsWindowController: NSWindowController {
             [autoPasteCheckbox, formLabel("翻译完成后粘贴到前台应用")]
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 12
-        grid.columnSpacing = 12
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 1).width = 360
+        grid.column(at: 0).width = 152
+        grid.column(at: 1).width = 330
 
         let view = NSView()
         view.addSubview(grid)
         NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            grid.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 22)
+            grid.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
         ])
         return view
     }
@@ -1603,11 +1733,16 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
         let view = NSView()
         view.addSubview(body)
         NSLayoutConstraint.activate([
-            body.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            body.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            body.topAnchor.constraint(equalTo: view.topAnchor, constant: 22)
+            body.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            body.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            body.topAnchor.constraint(equalTo: view.topAnchor, constant: 16)
         ])
         return view
+    }
+
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        let identifier = tabViewItem?.identifier as? String
+        resize(toContentSize: Self.contentSize(for: identifier), animated: true)
     }
 
     private func render() {
@@ -1619,7 +1754,7 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
         watchClipboardCheckbox.state = settings.watchClipboard ? .on : .off
         autoCopyCheckbox.state = settings.autoCopy ? .on : .off
         autoPasteCheckbox.state = settings.autoPaste ? .on : .off
-        shortcutField.stringValue = settings.quickTranslateShortcut
+        shortcutEditor.setShortcut(settings.quickTranslateShortcut)
     }
 
     @objc private func providerChanged() {
@@ -1642,7 +1777,10 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
     }
 
     @objc private func saveClicked() {
-        let shortcut = shortcutField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let shortcut = shortcutEditor.shortcut else {
+            NSSound.beep()
+            return
+        }
         guard HotKeyCenter.isShortcutSupported(shortcut) else {
             NSSound.beep()
             return
@@ -1698,6 +1836,7 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
     private func formLabel(_ title: String) -> NSTextField {
         let label = NSTextField(labelWithString: title)
         label.textColor = .secondaryLabelColor
+        label.font = .systemFont(ofSize: 13)
         return label
     }
 
@@ -1706,6 +1845,29 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
         label.textColor = .secondaryLabelColor
         label.font = .systemFont(ofSize: 13)
         return label
+    }
+
+    private static func contentSize(for identifier: String?) -> NSSize {
+        switch identifier {
+        case "workflow":
+            return NSSize(width: 600, height: 314)
+        case "privacy":
+            return NSSize(width: 640, height: 344)
+        default:
+            return NSSize(width: 640, height: 356)
+        }
+    }
+
+    private func resize(toContentSize size: NSSize, animated: Bool) {
+        guard let window else { return }
+        let frame = window.frame
+        let contentRect = window.contentRect(forFrameRect: frame)
+        guard abs(contentRect.width - size.width) > 0.5 || abs(contentRect.height - size.height) > 0.5 else {
+            return
+        }
+        var nextFrame = window.frameRect(forContentRect: NSRect(origin: contentRect.origin, size: size))
+        nextFrame.origin.y = frame.maxY - nextFrame.height
+        window.setFrame(nextFrame, display: true, animate: animated && window.isVisible)
     }
 
     private func providerTitle(_ provider: ModelProvider) -> String {
