@@ -243,6 +243,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(configuration.baseURL, "https://legacy.example.test")
         XCTAssertEqual(configuration.apiKey, "baidu-token")
         XCTAssertEqual(configuration.model, "legacy-model")
+        XCTAssertEqual(settings.appLanguage, "system")
     }
 
     func testAppleSystemProviderDoesNotBuildNetworkRequest() {
@@ -273,6 +274,15 @@ final class TranslationCoreTests: XCTestCase {
             from: Data(#"{"quickTranslateAutoCopy":false}"#.utf8)
         )
         XCTAssertFalse(disabledQuickTranslateAutoCopy.quickTranslateAutoCopy)
+    }
+
+    func testAppSettingsEncodingRoundTripPreservesAppLanguage() throws {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.appLanguage = "zh-Hans"
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: try JSONEncoder().encode(settings))
+
+        XCTAssertEqual(decoded.appLanguage, "zh-Hans")
     }
 
     func testAppSettingsDefaultsHonorTargetLanguageEnvironmentOverride() {

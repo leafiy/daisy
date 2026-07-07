@@ -3,6 +3,7 @@ import ApplicationServices
 import Foundation
 import SwiftUI
 import DaisyTranslatorCore
+import LeafiyUICore
 #if canImport(Translation)
 import Translation
 #endif
@@ -12,6 +13,7 @@ struct DaisyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        LeafiyLocalization.language = SettingsStore().load().selectedAppLanguage
         if CommandLine.arguments.contains("--self-test") {
             SelfTest.run()
             Foundation.exit(0)
@@ -27,17 +29,21 @@ struct DaisyApp: App {
             .onAppear {
                 appDelegate.applyWindowBehavior()
             }
+            .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
         .defaultSize(width: 620, height: 560)
 
         Settings {
             DaisySettingsView(model: appDelegate.model)
+                .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
 
         MenuBarExtra {
             DaisyMenuBarMenu(model: appDelegate.model, appDelegate: appDelegate)
+                .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         } label: {
             DaisyMenuBarLabel(model: appDelegate.model)
+                .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
         .menuBarExtraStyle(.menu)
     }
@@ -63,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
         let loadedSettings = normalized(settingsStore.load())
+        LeafiyLocalization.language = loadedSettings.selectedAppLanguage
+        model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
         configureApplicationIcon()
         configureModelCallbacks()
@@ -147,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func translateClipboardAndCopyWithoutWindow() {
         let text = pasteboardService.readTextVerified().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            showStatusMessage("剪贴板为空")
+            showStatusMessage(L("Clipboard is empty"))
             return
         }
         startQuickTranslation { text }
@@ -185,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.replaceSettings(normalizedSettings)
         do {
             try settingsStore.save(normalizedSettings)
+            LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()
@@ -193,7 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.retryCurrentText()
             }
         } catch {
-            model.statusText = "保存失败，请检查设置文件权限"
+            model.statusText = L("Failed to save. Check settings file permissions.")
         }
     }
 
@@ -216,6 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         normalized.baseURL = activeConfiguration.baseURL
         normalized.apiKey = activeConfiguration.apiKey
         normalized.model = activeConfiguration.model
+        if AppLanguage(rawValue: normalized.appLanguage) == nil {
+            normalized.appLanguage = AppLanguage.system.rawValue
+        }
         return normalized
     }
 
@@ -281,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.model.updateSettings { $0.quickTranslateAutoCopy = enabled }
             guard enabled else { return }
-            self.showStatusMessage(self.pasteboardService.writeText(text) ? "已复制" : "复制失败，请重试")
+            self.showStatusMessage(self.pasteboardService.writeText(text) ? L("Copied") : L("Copy failed. Try again."))
         }
     }
 
@@ -319,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { self.model.endTranslation() }
             do {
                 guard let text = try await makeSourceText() else {
-                    self.showStatusMessage("未选中文本")
+                    self.showStatusMessage(L("No text selected"))
                     return
                 }
                 guard !Task.isCancelled else { return }
@@ -328,14 +340,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 switch presentation {
                 case .clipboard:
                     if self.pasteboardService.writeText(translated) {
-                        self.showStatusMessage("已翻译并复制")
+                        self.showStatusMessage(L("Translated and copied"))
                     } else {
-                        self.showStatusMessage("翻译完成，但复制失败，请重试")
+                        self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
                     }
                 case .popup(let anchor):
                     let autoCopy = settingsSnapshot.quickTranslateAutoCopy
                     if autoCopy, !self.pasteboardService.writeText(translated) {
-                        self.showStatusMessage("翻译完成，但复制失败，请重试")
+                        self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
                     }
                     self.quickTranslatePopup.show(text: translated, autoCopyEnabled: autoCopy, above: anchor)
                 }
@@ -344,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let message = String(
                     TranslationService.userFacingErrorMessage(error, provider: settingsSnapshot.provider).prefix(40)
                 )
-                self.showStatusMessage("翻译失败：\(message)")
+                self.showStatusMessage(String(format: L("Translation failed: %@"), message))
             }
         }
     }
@@ -369,11 +381,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let alert = NSAlert()
-        alert.messageText = "允许 Daisy 控制键盘"
-        alert.informativeText = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。\n\n如果列表里 Daisy 已开启但仍弹出本提示，说明授权已因应用重新构建而失效：请在“辅助功能”列表中用“−”移除 Daisy 后重新添加。"
+        alert.messageText = L("Allow Daisy to control the keyboard")
+        alert.informativeText = L("Quick translate needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again.")
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "稍后")
+        alert.addButton(withTitle: L("Open System Settings"))
+        alert.addButton(withTitle: L("Later"))
 
         guard alert.runModal() == .alertFirstButtonReturn else {
             return false
@@ -652,7 +664,7 @@ private final class AppleSystemTranslationBridgeModel: ObservableObject {
         let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         let containsChinese = message.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) }
         if message.isEmpty || message == "Unable to Translate" || !containsChinese {
-            return DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed("系统无法完成这次翻译，请确认源文本语言和目标语言不同，且对应语言包已下载")
+            return DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed(L("The system could not complete this translation. Make sure the source text language and target language are different and that the language packs are downloaded."))
         }
         return DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed(message)
     }
@@ -684,7 +696,7 @@ private final class AppleSystemTranslationBridgeModel: ObservableObject {
             guard !Task.isCancelled else { return }
             self?.fail(
                 requestID: requestID,
-                error: DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed("系统翻译超时，请稍后重试")
+                error: DaisyTranslatorCore.TranslationError.appleSystemTranslationFailed(L("System translation timed out. Try again later."))
             )
         }
     }

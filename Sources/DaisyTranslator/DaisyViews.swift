@@ -32,25 +32,25 @@ struct TranslatorView: View {
         .leafiyToast(model.transientStatusMessage)
         .toolbar {
             ToolbarItemGroup {
-                Button("读剪贴板") {
+                Button(L("Read Clipboard")) {
                     model.pullClipboardAndTranslate()
                 }
-                Button("翻译") {
+                Button(L("Translate")) {
                     model.translateCurrentText()
                 }
-                Button("复制") {
+                Button(L("Copy")) {
                     model.copyResult()
                 }
-                Button("粘贴到前台") {
+                Button(L("Paste to Front App")) {
                     model.pasteResult()
                 }
-                Button("清空") {
+                Button(L("Clear")) {
                     model.clear()
                 }
                 Button {
                     model.updateSettings { $0.alwaysOnTop.toggle() }
                 } label: {
-                    Label("置顶窗口", systemImage: model.settings.alwaysOnTop ? "pin.fill" : "pin")
+                    Label(L("Pin Window"), systemImage: model.settings.alwaysOnTop ? "pin.fill" : "pin")
                 }
             }
         }
@@ -68,7 +68,7 @@ struct TranslatorView: View {
 
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.m) {
-            Text("原文")
+            Text(L("Source"))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
             LeafiyCard {
@@ -81,18 +81,18 @@ struct TranslatorView: View {
                 ))
                 .font(.body)
                 .scrollContentBackground(.hidden)
-                .accessibilityLabel("原文输入框")
+                .accessibilityLabel(L("Source input"))
             }
 
             HStack {
-                Text("译文")
+                Text(L("Translation"))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("目标语言")
+                Text(L("Target Language"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Picker("目标语言", selection: settingsBinding(\.targetLanguage)) {
+                Picker(L("Target Language"), selection: settingsBinding(\.targetLanguage)) {
                     ForEach(TargetLanguage.allCases, id: \.rawValue) { language in
                         Text(language.menuTitle).tag(language)
                     }
@@ -105,7 +105,7 @@ struct TranslatorView: View {
             }
             LeafiyCard {
                 resultPane
-                    .accessibilityLabel("译文输出框")
+                    .accessibilityLabel(L("Translation output"))
             }
         }
         .padding(LeafiyDesign.Spacing.l)
@@ -114,7 +114,7 @@ struct TranslatorView: View {
     @ViewBuilder
     private var resultPane: some View {
         if model.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            EmptyStateView(systemImage: "text.bubble", title: "暂无译文", subtitle: "输入原文或读取剪贴板后开始翻译")
+            EmptyStateView(systemImage: "text.bubble", title: L("No translation yet"), subtitle: L("Enter source text or read the clipboard to start translating"))
         } else {
             ScrollView {
                 Text(model.translatedText)
@@ -140,76 +140,86 @@ struct DaisySettingsView: View {
 
     var body: some View {
         SettingsScaffold {
-            SettingsPane("服务", systemImage: "globe", height: 480) {
-                Section("服务") {
+            SettingsPane(L("General"), systemImage: "globe", height: 480) {
+                Section(L("General")) {
+                    LanguagePicker(selection: appLanguageBinding)
                     ProviderConfigurationForm(model: model)
                     providerHint
                 }
             }
-            SettingsPane("工作流", systemImage: "slider.horizontal.3", height: 560) {
-                Section("快捷翻译") {
-                    Toggle("快捷翻译", isOn: settingsBinding(\.quickTranslateEnabled))
-                    Text("翻译选中文本并在弹出工具条中显示译文")
+            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 560) {
+                Section(L("Quick Translate")) {
+                    Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
+                    Text(L("Translate selected text and show the translation in a popup toolbar"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    LabeledContent("快捷键") {
+                    LabeledContent(L("Shortcut")) {
                         ShortcutField(spec: shortcutBinding)
                     }
-                    Text("当前快捷键：\(shortcutDisplay)")
+                    Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle("快捷翻译自动复制", isOn: settingsBinding(\.quickTranslateAutoCopy))
-                    Text("弹出译文时自动写入剪贴板")
+                    Toggle(L("Quick Translate Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
+                    Text(L("Automatically write the popup translation to the clipboard"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Section("自动化") {
-                    Toggle("自动翻译", isOn: settingsBinding(\.autoTranslate))
-                    Text("输入停止后自动翻译")
+                Section(L("Automation")) {
+                    Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
+                    Text(L("Automatically translate after input stops"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle("监听剪贴板", isOn: settingsBinding(\.watchClipboard))
-                    Text("剪贴板变化后自动读取并翻译")
+                    Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))
+                    Text(L("Automatically read and translate clipboard changes"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle("自动复制", isOn: settingsBinding(\.autoCopy))
-                    Text("翻译完成后写入剪贴板")
+                    Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
+                    Text(L("Write translations to the clipboard when complete"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle("自动粘贴", isOn: settingsBinding(\.autoPaste))
-                    Text("翻译完成后粘贴到前台应用")
+                    Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
+                    Text(L("Paste translations into the frontmost app when complete"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            SettingsPane("隐私", systemImage: "hand.raised", height: 360) {
-                Section("隐私") {
-                    Text("""
-Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析数据。
+            SettingsPane(L("Privacy"), systemImage: "hand.raised", height: 360) {
+                Section(L("Privacy")) {
+                    Text(L("""
+Daisy does not collect accounts, device identifiers, contacts, browsing history, or analytics data.
 
-当你使用 Apple 系统翻译时，翻译由 macOS 的系统翻译能力处理。改用 DeepSeek、Google、百度或 OpenAI-compatible 等外部服务时，原文会发送到你在“服务”里配置的翻译接口；译文由该服务返回。API Key 只保存在本机设置文件中，用于请求你选择的服务。
+When you use Apple System Translation, translation is handled by macOS system translation. If you switch to external services such as DeepSeek, Google, Baidu, or OpenAI-compatible, the source text is sent to the translation endpoint you configure in General; the translation is returned by that service. API keys are stored only in the local settings file and are used to request the service you choose.
 
-剪贴板监听默认关闭。开启后，Daisy 会在本机读取剪贴板文本，并按你的配置进行翻译。自动粘贴需要 macOS 辅助功能权限，Daisy 只在触发粘贴时发送 Cmd+V。
-""")
+Clipboard watching is off by default. When enabled, Daisy reads clipboard text locally and translates it according to your configuration. Auto paste requires macOS Accessibility permission; Daisy sends Cmd+V only when paste is triggered.
+"""))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 }
             }
             AboutPane(
-                title: "关于",
-                tagline: "一个极简 macOS 原生 Swift 桌面翻译工具",
-                copyright: "© 2026 Leafiy"
+                title: L("About"),
+                tagline: L("A minimal native Swift desktop translator for macOS"),
+                copyright: L("© 2026 Leafiy")
             )
         }
     }
 
     private var providerHint: some View {
-        Text("默认使用 Apple 系统翻译，不需要 API Key。OpenAI-compatible 和 Ollama 可接入你自己的服务，DeepSeek / Google / 百度可使用对应官方 API。")
+        Text(L("Apple System Translation is used by default and does not require an API key. OpenAI-compatible and Ollama can connect to your own services; DeepSeek, Google, and Baidu can use their official APIs."))
             .font(.caption)
             .foregroundStyle(.secondary)
     }
 
+
+    private var appLanguageBinding: Binding<AppLanguage> {
+        Binding(
+            get: { model.settings.selectedAppLanguage },
+            set: { language in
+                model.updateSettings { $0.selectedAppLanguage = language }
+            }
+        )
+    }
     private var shortcutBinding: Binding<KeyboardShortcutSpec> {
         Binding(
             get: {
@@ -219,7 +229,7 @@ Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析�
             set: { spec in
                 let shortcut = spec.canonicalDescription
                 guard HotKeyCenter.isShortcutSupported(shortcut) else {
-                    model.showTransientStatus("快捷键无效")
+                    model.showTransientStatus(L("Invalid shortcut"))
                     return
                 }
                 model.updateSettings { $0.quickTranslateShortcut = shortcut }
@@ -246,7 +256,7 @@ struct ProviderConfigurationForm: View {
     @ObservedObject var model: DaisyModel
 
     var body: some View {
-        Picker("类型", selection: Binding(
+        Picker(L("Type"), selection: Binding(
             get: { model.settings.provider },
             set: { model.setProvider($0) }
         )) {
@@ -254,21 +264,21 @@ struct ProviderConfigurationForm: View {
                 Text(providerTitle(provider)).tag(provider)
             }
         }
-        LabeledContent("Base URL") {
+        LabeledContent(L("Base URL")) {
             TextField(
                 providerFieldSemantics.baseURLPlaceholder,
                 text: providerFieldBinding(\.baseURL)
             )
             .disabled(!providerFieldSemantics.baseURLEnabled)
         }
-        LabeledContent("API Key") {
+        LabeledContent(L("API Key")) {
             SecureField(
                 providerFieldSemantics.apiKeyPlaceholder,
                 text: providerFieldBinding(\.apiKey)
             )
             .disabled(!providerFieldSemantics.apiKeyEnabled)
         }
-        LabeledContent("Model") {
+        LabeledContent(L("Model")) {
             TextField(
                 providerFieldSemantics.modelPlaceholder,
                 text: providerFieldBinding(\.model)
@@ -329,9 +339,9 @@ private struct ProviderFieldSemantics {
     var baseURLPlaceholder: String {
         switch provider {
         case .appleSystem:
-            return "无需配置"
+            return L("No configuration needed")
         case .deepSeek:
-            return "自动使用官方地址"
+            return L("Automatically uses official URL")
         case .google:
             return "https://translate.googleapis.com"
         case .baidu:
@@ -344,22 +354,22 @@ private struct ProviderFieldSemantics {
     var apiKeyPlaceholder: String {
         switch provider {
         case .appleSystem:
-            return "无需配置"
+            return L("No configuration needed")
         case .google:
-            return "可选：Google Cloud API Key"
+            return L("Optional: Google Cloud API Key")
         case .deepSeek, .baidu, .ollama, .openAICompatible:
-            return "API Key"
+            return L("API Key")
         }
     }
 
     var modelPlaceholder: String {
         switch provider {
         case .appleSystem, .google, .baidu:
-            return "无需配置"
+            return L("No configuration needed")
         case .deepSeek:
             return AppSettings.defaultModel(for: .deepSeek)
         case .ollama, .openAICompatible:
-            return "模型名称"
+            return L("Model name")
         }
     }
 }
@@ -370,24 +380,24 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.l) {
             VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.s) {
-                Text("欢迎使用 Daisy")
+                Text(L("Welcome to Daisy"))
                     .font(.title2.weight(.semibold))
-                Text("默认使用 Apple 系统翻译。你也可以改用自己的 DeepSeek、Google、百度或 OpenAI-compatible 服务。")
+                Text(L("Apple System Translation is used by default. You can also switch to your own DeepSeek, Google, Baidu, or OpenAI-compatible service."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Form {
-                Section("首次配置") {
+                Section(L("First-time Setup")) {
                     ProviderConfigurationForm(model: model)
                 }
             }
             .formStyle(.grouped)
             HStack {
                 Spacer()
-                Button("稍后配置") {
+                Button(L("Configure Later")) {
                     model.dismissOnboardingForNow()
                 }
-                Button("开始使用") {
+                Button(L("Get Started")) {
                     model.completeOnboarding()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -404,21 +414,21 @@ struct DaisyMenuBarMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(appDelegate.isMainWindowVisible ? "隐藏窗口" : "显示窗口") {
+        Button(appDelegate.isMainWindowVisible ? L("Hide Window") : L("Show Window")) {
             appDelegate.toggleMainWindow(openWindow: openWindow)
         }
         Divider()
-        Button("读取剪贴板翻译并复制") {
+        Button(L("Read Clipboard, Translate, and Copy")) {
             appDelegate.translateClipboardAndCopyWithoutWindow()
         }
-        Button("粘贴当前译文") {
+        Button(L("Paste Current Translation")) {
             model.pasteResult()
         }
         Divider()
         SettingsLink {
-            Text("设置…")
+            Text(L("Settings…"))
         }
-        Picker("目标语言", selection: Binding(
+        Picker(L("Target Language"), selection: Binding(
             get: { model.settings.targetLanguage },
             set: { language in model.updateSettings { $0.targetLanguage = language } }
         )) {
@@ -427,14 +437,14 @@ struct DaisyMenuBarMenu: View {
             }
         }
         Divider()
-        Toggle("快捷翻译", isOn: settingsBinding(\.quickTranslateEnabled))
-        Toggle("自动翻译", isOn: settingsBinding(\.autoTranslate))
-        Toggle("监听剪贴板", isOn: settingsBinding(\.watchClipboard))
-        Toggle("自动复制", isOn: settingsBinding(\.autoCopy))
-        Toggle("自动粘贴", isOn: settingsBinding(\.autoPaste))
-        Text("快捷键：\(shortcutDisplay)")
+        Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
+        Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
+        Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))
+        Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
+        Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
+        Text(String(format: L("Shortcut: %@"), shortcutDisplay))
         Divider()
-        Button("退出 Daisy") {
+        Button(L("Quit Daisy")) {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
@@ -465,12 +475,12 @@ struct DaisyMenuBarLabel: View {
             if let icon = Self.icon {
                 Image(nsImage: icon)
             } else {
-                Text("daisy")
+                Text(verbatim: "daisy")
             }
             if let message = model.menuBarStatusText, !message.isEmpty {
                 Text(message)
             }
         }
-        .accessibilityLabel("Daisy")
+        .accessibilityLabel(Text(verbatim: "Daisy"))
     }
 }

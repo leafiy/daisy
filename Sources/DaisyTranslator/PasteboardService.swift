@@ -183,9 +183,9 @@ enum PasteboardError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .writeFailed:
-            return "写入剪贴板失败，请重试"
+            return L("Failed to write to clipboard. Try again.")
         case .keystrokeFailed:
-            return "发送按键失败，请检查辅助功能权限"
+            return L("Failed to send keystroke. Check Accessibility permission.")
         }
     }
 }

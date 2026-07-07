@@ -28,6 +28,7 @@ targets.append(
 
 let package = Package(
     name: "DaisyTranslator",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],

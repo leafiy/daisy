@@ -7,7 +7,7 @@ final class DaisyModel: ObservableObject {
     @Published private(set) var settings: AppSettings = .defaults()
     @Published var sourceText = ""
     @Published var translatedText = ""
-    @Published var statusText = "就绪"
+    @Published var statusText = L("Ready")
     @Published var transientStatusMessage: String?
     @Published var isOnboardingPresented = false
     @Published private(set) var activeTranslationCount = 0
@@ -28,7 +28,7 @@ final class DaisyModel: ObservableObject {
 
     var menuBarStatusText: String? {
         if activeTranslationCount > 0 {
-            return "翻译中…"
+            return L("Translating…")
         }
         return transientStatusMessage
     }
@@ -87,14 +87,14 @@ final class DaisyModel: ObservableObject {
 
     func acceptClipboardText(_ text: String) {
         sourceText = text
-        statusText = "已读取剪贴板"
+        statusText = L("Read clipboard")
         scheduleTranslation()
     }
 
     func pullClipboardAndTranslate() {
         let text = readClipboardText?() ?? ""
         guard !text.isEmpty else {
-            statusText = "剪贴板为空"
+            statusText = L("Clipboard is empty")
             return
         }
         sourceText = text
@@ -138,16 +138,16 @@ final class DaisyModel: ObservableObject {
 
         guard !text.isEmpty else {
             translatedText = ""
-            statusText = "就绪"
+            statusText = L("Ready")
             return
         }
         guard let translateText else {
-            statusText = "翻译服务未就绪"
+            statusText = L("Translation service is not ready")
             return
         }
 
         let requestSettings = settings
-        statusText = "翻译中…"
+        statusText = L("Translating…")
         beginTranslation()
         defer { endTranslation() }
 
@@ -158,20 +158,20 @@ final class DaisyModel: ObservableObject {
             var copySucceeded = false
             if requestSettings.autoCopy {
                 copySucceeded = writeClipboardText?(translated) ?? false
-                showTransientStatus(copySucceeded ? "已复制译文" : "复制失败，请手动复制")
+                showTransientStatus(copySucceeded ? L("Copied translation") : L("Copy failed. Copy manually."))
             }
             if requestSettings.autoPaste {
                 guard ensurePastePermission?() ?? false else {
-                    statusText = "自动粘贴需要辅助功能权限"
+                    statusText = L("Auto paste requires Accessibility permission")
                     return
                 }
                 try await pasteIntoFrontmostApp?(translated)
-                showTransientStatus("已自动粘贴")
+                showTransientStatus(L("Auto pasted"))
             }
             if requestSettings.autoCopy {
-                statusText = copySucceeded ? "已完成并复制" : "已完成，复制失败"
+                statusText = copySucceeded ? L("Completed and copied") : L("Completed, copy failed")
             } else {
-                statusText = "已完成"
+                statusText = L("Completed")
             }
         } catch {
             guard currentRequestID == requestID else { return }
@@ -184,11 +184,11 @@ final class DaisyModel: ObservableObject {
         let result = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.isEmpty else { return }
         if writeClipboardText?(result) == true {
-            statusText = "已复制"
-            showTransientStatus("已复制")
+            statusText = L("Copied")
+            showTransientStatus(L("Copied"))
         } else {
-            statusText = "复制失败"
-            showTransientStatus("复制失败，请重试")
+            statusText = L("Copy failed")
+            showTransientStatus(L("Copy failed. Try again."))
         }
     }
 
@@ -200,10 +200,10 @@ final class DaisyModel: ObservableObject {
             do {
                 guard self.ensurePastePermission?() ?? false else { return }
                 try await self.pasteIntoFrontmostApp?(result)
-                self.statusText = "已粘贴"
-                self.showTransientStatus("已粘贴")
+                self.statusText = L("Pasted")
+                self.showTransientStatus(L("Pasted"))
             } catch {
-                self.statusText = "粘贴失败：\(TranslationService.userFacingErrorMessage(error, provider: nil))"
+                self.statusText = String(format: L("Paste failed: %@"), TranslationService.userFacingErrorMessage(error, provider: nil))
             }
         }
     }
@@ -211,7 +211,7 @@ final class DaisyModel: ObservableObject {
     func clear() {
         sourceText = ""
         translatedText = ""
-        statusText = "就绪"
+        statusText = L("Ready")
     }
 
     func beginTranslation() {

@@ -35,7 +35,7 @@ func normalizedServiceConfiguration(
 func providerTitle(_ provider: ModelProvider) -> String {
     switch provider {
     case .appleSystem:
-        return "Apple 系统翻译"
+        return L("Apple System Translation")
     case .openAICompatible:
         return "OpenAI-compatible"
     case .ollama:
@@ -43,9 +43,9 @@ func providerTitle(_ provider: ModelProvider) -> String {
     case .deepSeek:
         return "DeepSeek"
     case .google:
-        return "Google 翻译"
+        return L("Google Translate")
     case .baidu:
-        return "百度翻译"
+        return L("Baidu Translate")
     }
 }
 
@@ -54,15 +54,15 @@ func providerApplicationLinkTitle(_ provider: ModelProvider) -> String? {
     case .appleSystem:
         return nil
     case .openAICompatible:
-        return "OpenAI API Key"
+        return L("OpenAI API Key")
     case .ollama:
-        return "Ollama 模型库"
+        return L("Ollama Model Library")
     case .deepSeek:
-        return "DeepSeek API Key"
+        return L("DeepSeek API Key")
     case .google:
-        return "Google Cloud Translation"
+        return L("Google Cloud Translation")
     case .baidu:
-        return "百度翻译开放平台"
+        return L("Baidu Translate Open Platform")
     }
 }
 
@@ -97,11 +97,11 @@ extension TargetLanguage {
     var menuTitle: String {
         switch self {
         case .auto:
-            return "自动（中英互译）"
+            return L("Auto (Chinese ↔ English)")
         case .english:
-            return "英语"
+            return L("English")
         case .chinese:
-            return "中文"
+            return L("Chinese")
         }
     }
 }

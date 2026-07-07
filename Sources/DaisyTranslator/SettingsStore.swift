@@ -82,7 +82,8 @@ final class SettingsStore {
             quickTranslateShortcut: stored.quickTranslateShortcut.isEmpty ? defaults.quickTranslateShortcut : stored.quickTranslateShortcut,
             provider: stored.provider,
             targetLanguage: stored.targetLanguage,
-            onboardingCompleted: stored.onboardingCompleted
+            onboardingCompleted: stored.onboardingCompleted,
+            appLanguage: stored.appLanguage.isEmpty ? defaults.appLanguage : stored.appLanguage
         )
     }
 }

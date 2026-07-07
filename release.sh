@@ -74,6 +74,10 @@ build_dmg() { # $1 = arch
             "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-menubar-template.png" \
             "$app/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-source.webp"
     fi
+    if [ -d "$bin_dir/LeafiyUI_LeafiyUI.bundle" ]; then
+        cp -R "$bin_dir/LeafiyUI_LeafiyUI.bundle" "$app/Contents/Resources/"
+    fi
+
 
     if [ "$SIGN_IDENTITY" = "-" ]; then
         codesign --force --sign - "$app"

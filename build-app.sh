@@ -47,6 +47,10 @@ if [ -d "$BIN_DIR/DaisyTranslator_DaisyTranslator.bundle" ]; then
         "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-menubar-template.png" \
         "$APP/Contents/Resources/DaisyTranslator_DaisyTranslator.bundle/daisy-source.webp"
 fi
+if [ -d "$BIN_DIR/LeafiyUI_LeafiyUI.bundle" ]; then
+    cp -R "$BIN_DIR/LeafiyUI_LeafiyUI.bundle" "$APP/Contents/Resources/"
+fi
+
 
 if [ -z "$SIGN_IDENTITY" ]; then
     SIGN_IDENTITY=$(security find-identity -v -p codesigning \

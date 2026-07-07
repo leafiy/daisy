@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import SwiftUI
 import LeafiyUI
+import LeafiyUICore
 
 /// Floating result toolbar for quick translate: shows the translation in a
 /// small non-activating panel above the selected text. The panel never steals
@@ -9,13 +10,15 @@ import LeafiyUI
 /// it stays open for as long as the pointer is inside it.
 @MainActor
 final class QuickTranslatePopupController: NSObject {
-    /// Fired when the user flips the "自动复制" checkbox in the popup.
+    /// Fired when the user flips the "Auto copy" checkbox in the popup.
     /// Arguments: new state, currently displayed translation.
     var onAutoCopyChanged: ((Bool, String) -> Void)?
 
     private var panel: QuickTranslatePanel?
     private var lingerTimer: Timer?
     private var currentText = ""
+    private var currentAutoCopyEnabled = true
+    private var languageObserver: NSObjectProtocol?
     private var shownAt = Date.distantPast
     private var hasHovered = false
     private var lastInsideAt = Date.distantPast
@@ -34,6 +37,19 @@ final class QuickTranslatePopupController: NSObject {
     private static let exitLinger: TimeInterval = 0.6
     private static let lingerTickInterval: TimeInterval = 0.25
 
+    override init() {
+        super.init()
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: LeafiyLocalization.languageDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshForLanguageChange()
+            }
+        }
+    }
+
     // MARK: - Presentation
 
     /// - Parameter anchor: screen rect (AppKit coordinates) of the selected
@@ -42,6 +58,7 @@ final class QuickTranslatePopupController: NSObject {
     func show(text: String, autoCopyEnabled: Bool, above anchor: NSRect?) {
         close()
         currentText = text
+        currentAutoCopyEnabled = autoCopyEnabled
 
         let panel = makePanel(text: text, autoCopyEnabled: autoCopyEnabled)
         position(panel, above: anchor ?? Self.mouseAnchor())
@@ -114,21 +131,35 @@ final class QuickTranslatePopupController: NSObject {
         panel.animationBehavior = .utilityWindow
         panel.onCancel = { [weak self] in self?.close() }
 
-        let content = QuickTranslatePopupContent(
+        let content = popupContent(text: text, autoCopyEnabled: autoCopyEnabled)
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = NSRect(origin: .zero, size: panelSize)
+        hostingView.autoresizingMask = [.width, .height]
+        panel.contentView = hostingView
+        return panel
+    }
+
+    private func popupContent(text: String, autoCopyEnabled: Bool) -> QuickTranslatePopupContent {
+        QuickTranslatePopupContent(
             text: text,
             autoCopyEnabled: autoCopyEnabled,
             onAutoCopyChanged: { [weak self] enabled in
+                self?.currentAutoCopyEnabled = enabled
                 self?.onAutoCopyChanged?(enabled, text)
             },
             onClose: { [weak self] in
                 self?.close()
             }
         )
-        let hostingView = NSHostingView(rootView: content)
+    }
+
+    private func refreshForLanguageChange() {
+        guard let panel else { return }
+        let panelSize = panel.frame.size
+        let hostingView = NSHostingView(rootView: popupContent(text: currentText, autoCopyEnabled: currentAutoCopyEnabled))
         hostingView.frame = NSRect(origin: .zero, size: panelSize)
         hostingView.autoresizingMask = [.width, .height]
         panel.contentView = hostingView
-        return panel
     }
 
     private func fittingPanelSize(for text: String) -> NSSize {
@@ -246,6 +277,12 @@ final class QuickTranslatePopupController: NSObject {
             height: quartzRect.height
         )
     }
+
+    deinit {
+        if let languageObserver {
+            NotificationCenter.default.removeObserver(languageObserver)
+        }
+    }
 }
 
 private struct QuickTranslatePopupContent: View {
@@ -257,7 +294,7 @@ private struct QuickTranslatePopupContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.s) {
             HStack {
-                Toggle("自动复制", isOn: Binding(
+                Toggle(L("Auto copy"), isOn: Binding(
                     get: { autoCopyEnabled },
                     set: { enabled in
                         autoCopyEnabled = enabled
@@ -271,7 +308,7 @@ private struct QuickTranslatePopupContent: View {
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(L("Close"))
             }
             ScrollView {
                 Text(text)
@@ -302,4 +339,5 @@ private final class QuickTranslatePanel: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
+
 }

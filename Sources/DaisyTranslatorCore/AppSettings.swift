@@ -47,6 +47,7 @@ public struct AppSettings: Codable, Equatable {
     public var quickTranslateAutoCopy: Bool
     public var targetLanguage: TargetLanguage
     public var onboardingCompleted: Bool
+    public var appLanguage: String
 
     public init(
         baseURL: String,
@@ -67,11 +68,13 @@ public struct AppSettings: Codable, Equatable {
         quickTranslateAutoCopy: Bool = true,
         provider: ModelProvider = .appleSystem,
         targetLanguage: TargetLanguage = .auto,
-        onboardingCompleted: Bool = false
+        onboardingCompleted: Bool = false,
+        appLanguage: String = "system"
     ) {
         self.provider = provider
         self.targetLanguage = targetLanguage
         self.onboardingCompleted = onboardingCompleted
+        self.appLanguage = appLanguage
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
@@ -116,7 +119,8 @@ public struct AppSettings: Codable, Equatable {
             quickTranslateShortcut: "Command+Shift+V",
             quickTranslateAutoCopy: true,
             provider: provider,
-            targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto
+            targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto,
+            appLanguage: "system"
         )
     }
 
@@ -206,6 +210,7 @@ public struct AppSettings: Codable, Equatable {
         case quickTranslateAutoCopy
         case targetLanguage
         case onboardingCompleted
+        case appLanguage
     }
 
     public init(from decoder: Decoder) throws {
@@ -241,5 +246,6 @@ public struct AppSettings: Codable, Equatable {
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut
         quickTranslateAutoCopy = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateAutoCopy) ?? defaults.quickTranslateAutoCopy
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
+        appLanguage = try container.decodeIfPresent(String.self, forKey: .appLanguage) ?? "system"
     }
 }
