@@ -33,9 +33,7 @@ let package = Package(
     ],
     products: products,
     dependencies: [
-        // Shared Leafiy design system, vendored in-repo (canonical source:
-        // the leafiy-ui repository; re-sync with its scripts/sync-into-apps.sh).
-        .package(path: "Vendor/leafiy-ui"),
+        .package(path: "../leafiy-ui")
     ],
     targets: targets
 )
