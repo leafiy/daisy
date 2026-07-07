@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationServices
+import SwiftUI
+import LeafiyUI
 
 /// Floating result toolbar for quick translate: shows the translation in a
 /// small non-activating panel above the selected text. The panel never steals
@@ -17,6 +19,16 @@ final class QuickTranslatePopupController: NSObject {
     private var shownAt = Date.distantPast
     private var hasHovered = false
     private var lastInsideAt = Date.distantPast
+
+    private enum Metrics {
+        static let minWidth: CGFloat = 240
+        static let maxWidth: CGFloat = 380
+        static let maxTextHeight: CGFloat = 280
+        static let minTextHeight: CGFloat = 44
+        static let headerHeight: CGFloat = 30
+        static let panelMargin: CGFloat = 8
+        static let anchorGap: CGFloat = 10
+    }
 
     /// Grace period after the pointer leaves the panel.
     private static let exitLinger: TimeInterval = 0.6
@@ -62,7 +74,7 @@ final class QuickTranslatePopupController: NSObject {
     private func lingerTick() {
         guard let panel else { return }
         let now = Date()
-        if panel.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) {
+        if panel.frame.insetBy(dx: -LeafiyDesign.Spacing.xs, dy: -LeafiyDesign.Spacing.xs).contains(NSEvent.mouseLocation) {
             hasHovered = true
             lastInsideAt = now
             return
@@ -82,27 +94,7 @@ final class QuickTranslatePopupController: NSObject {
     // MARK: - Panel construction
 
     private func makePanel(text: String, autoCopyEnabled: Bool) -> QuickTranslatePanel {
-        let font = NSFont.systemFont(ofSize: 13)
-        let measuringOptions: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-
-        // Chrome: 12pt side insets + 5pt text-container padding each side.
-        let horizontalChrome: CGFloat = 24 + 10
-        let unconstrained = (text as NSString).boundingRect(
-            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: measuringOptions,
-            attributes: attributes
-        )
-        let panelWidth = min(380, max(240, ceil(unconstrained.width) + horizontalChrome))
-        let wrapped = (text as NSString).boundingRect(
-            with: NSSize(width: panelWidth - horizontalChrome, height: CGFloat.greatestFiniteMagnitude),
-            options: measuringOptions,
-            attributes: attributes
-        )
-        let textHeight = min(280, max(22, ceil(wrapped.height) + 6))
-        let headerHeight: CGFloat = 26
-        let panelSize = NSSize(width: panelWidth, height: headerHeight + textHeight + 16)
-
+        let panelSize = fittingPanelSize(for: text)
         let panel = QuickTranslatePanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -122,77 +114,44 @@ final class QuickTranslatePopupController: NSObject {
         panel.animationBehavior = .utilityWindow
         panel.onCancel = { [weak self] in self?.close() }
 
-        let effectView = NSVisualEffectView(frame: NSRect(origin: .zero, size: panelSize))
-        effectView.material = .popover
-        effectView.blendingMode = .behindWindow
-        effectView.state = .active
-        effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = 10
-        effectView.layer?.masksToBounds = true
-        panel.contentView = effectView
-
-        let autoCopyCheckbox = NSButton(
-            checkboxWithTitle: "自动复制",
-            target: self,
-            action: #selector(autoCopyToggled(_:))
+        let content = QuickTranslatePopupContent(
+            text: text,
+            autoCopyEnabled: autoCopyEnabled,
+            onAutoCopyChanged: { [weak self] enabled in
+                self?.onAutoCopyChanged?(enabled, text)
+            },
+            onClose: { [weak self] in
+                self?.close()
+            }
         )
-        autoCopyCheckbox.controlSize = .small
-        autoCopyCheckbox.font = .systemFont(ofSize: 11)
-        autoCopyCheckbox.state = autoCopyEnabled ? .on : .off
-
-        let closeButton = NSButton(title: "", target: self, action: #selector(closeClicked))
-        if let image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "关闭") {
-            closeButton.image = image
-            closeButton.imagePosition = .imageOnly
-        } else {
-            closeButton.title = "✕"
-        }
-        closeButton.isBordered = false
-        closeButton.contentTintColor = .tertiaryLabelColor
-        closeButton.refusesFirstResponder = true
-
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.font = font
-        textView.textColor = .labelColor
-        textView.string = text
-        textView.textContainerInset = NSSize(width: 0, height: 2)
-        textView.minSize = .zero
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        scrollView.documentView = textView
-
-        for view in [autoCopyCheckbox, closeButton, scrollView] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            effectView.addSubview(view)
-        }
-        NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: effectView.topAnchor, constant: 7),
-            closeButton.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -8),
-            closeButton.widthAnchor.constraint(equalToConstant: 18),
-            closeButton.heightAnchor.constraint(equalToConstant: 18),
-
-            autoCopyCheckbox.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
-            autoCopyCheckbox.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: 12),
-
-            scrollView.topAnchor.constraint(equalTo: effectView.topAnchor, constant: headerHeight + 4),
-            scrollView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: 12),
-            scrollView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -12),
-            scrollView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor, constant: -12)
-        ])
-
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = NSRect(origin: .zero, size: panelSize)
+        hostingView.autoresizingMask = [.width, .height]
+        panel.contentView = hostingView
         return panel
+    }
+
+    private func fittingPanelSize(for text: String) -> NSSize {
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        let measuringOptions: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let horizontalChrome = (LeafiyDesign.Spacing.m + LeafiyDesign.Spacing.l) * 2
+        let unconstrained = (text as NSString).boundingRect(
+            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: measuringOptions,
+            attributes: attributes
+        )
+        let panelWidth = min(Metrics.maxWidth, max(Metrics.minWidth, ceil(unconstrained.width) + horizontalChrome))
+        let wrapped = (text as NSString).boundingRect(
+            with: NSSize(width: panelWidth - horizontalChrome, height: CGFloat.greatestFiniteMagnitude),
+            options: measuringOptions,
+            attributes: attributes
+        )
+        let textHeight = min(Metrics.maxTextHeight, max(Metrics.minTextHeight, ceil(wrapped.height) + LeafiyDesign.Spacing.m))
+        return NSSize(
+            width: panelWidth,
+            height: Metrics.headerHeight + textHeight + LeafiyDesign.Spacing.xl
+        )
     }
 
     private func position(_ panel: NSPanel, above anchor: NSRect) {
@@ -206,13 +165,13 @@ final class QuickTranslatePopupController: NSObject {
         }
         let size = panel.frame.size
         var x = anchor.midX - size.width / 2
-        x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
-        var y = anchor.maxY + 10
+        x = max(visible.minX + Metrics.panelMargin, min(x, visible.maxX - size.width - Metrics.panelMargin))
+        var y = anchor.maxY + Metrics.anchorGap
         if y + size.height > visible.maxY {
             // Not enough room above the selection — place the panel below it.
-            y = anchor.minY - size.height - 10
+            y = anchor.minY - size.height - Metrics.anchorGap
             if y < visible.minY {
-                y = visible.minY + 8
+                y = visible.minY + Metrics.panelMargin
             }
         }
         panel.setFrameOrigin(NSPoint(x: x, y: y))
@@ -220,17 +179,12 @@ final class QuickTranslatePopupController: NSObject {
 
     private static func mouseAnchor() -> NSRect {
         let location = NSEvent.mouseLocation
-        return NSRect(x: location.x - 8, y: location.y - 8, width: 16, height: 16)
-    }
-
-    // MARK: - Actions
-
-    @objc private func autoCopyToggled(_ sender: NSButton) {
-        onAutoCopyChanged?(sender.state == .on, currentText)
-    }
-
-    @objc private func closeClicked() {
-        close()
+        return NSRect(
+            x: location.x - Metrics.panelMargin,
+            y: location.y - Metrics.panelMargin,
+            width: Metrics.panelMargin * 2,
+            height: Metrics.panelMargin * 2
+        )
     }
 
     // MARK: - Selection anchor
@@ -290,6 +244,48 @@ final class QuickTranslatePopupController: NSObject {
             y: primary.frame.maxY - quartzRect.maxY,
             width: quartzRect.width,
             height: quartzRect.height
+        )
+    }
+}
+
+private struct QuickTranslatePopupContent: View {
+    let text: String
+    @State var autoCopyEnabled: Bool
+    let onAutoCopyChanged: (Bool) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.s) {
+            HStack {
+                Toggle("自动复制", isOn: Binding(
+                    get: { autoCopyEnabled },
+                    set: { enabled in
+                        autoCopyEnabled = enabled
+                        onAutoCopyChanged(enabled)
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
+            }
+            ScrollView {
+                Text(text)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, LeafiyDesign.Spacing.m)
+        .padding(.vertical, LeafiyDesign.Spacing.s)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: LeafiyDesign.Radius.panel))
+        .overlay(
+            RoundedRectangle(cornerRadius: LeafiyDesign.Radius.panel)
+                .strokeBorder(.quaternary)
         )
     }
 }

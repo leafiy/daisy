@@ -1,5 +1,6 @@
 import Carbon.HIToolbox
 import Foundation
+import LeafiyUICore
 
 final class HotKeyCenter {
     enum HotKey: UInt32 {
@@ -95,37 +96,28 @@ final class HotKeyCenter {
     }
 
     private static func parseShortcut(_ shortcut: String) -> (keyCode: UInt32, modifiers: Int)? {
-        let tokens = shortcut
-            .replacingOccurrences(of: "⌘", with: "Command+")
-            .replacingOccurrences(of: "⇧", with: "Shift+")
-            .replacingOccurrences(of: "⌥", with: "Option+")
-            .replacingOccurrences(of: "⌃", with: "Control+")
-            .split(separator: "+")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-
-        guard !tokens.isEmpty else { return nil }
-
-        var modifiers = 0
-        var keyToken: String?
-        for token in tokens {
-            switch token {
-            case "command", "cmd", "commandorcontrol":
-                modifiers |= cmdKey
-            case "shift":
-                modifiers |= shiftKey
-            case "option", "alt":
-                modifiers |= optionKey
-            case "control", "ctrl":
-                modifiers |= controlKey
-            default:
-                guard keyToken == nil else { return nil }
-                keyToken = token
-            }
+        guard let spec = KeyboardShortcutSpec(parsing: shortcut),
+              let keyCode = keyCode(for: spec.key.lowercased()) else {
+            return nil
         }
+        return (UInt32(keyCode), modifierFlags(for: spec))
+    }
 
-        guard modifiers != 0, let keyToken, let keyCode = keyCode(for: keyToken) else { return nil }
-        return (UInt32(keyCode), modifiers)
+    private static func modifierFlags(for spec: KeyboardShortcutSpec) -> Int {
+        modifierFlag(for: spec.first) | modifierFlag(for: spec.second)
+    }
+
+    private static func modifierFlag(for modifier: KeyboardShortcutSpec.Modifier) -> Int {
+        switch modifier {
+        case .command:
+            return cmdKey
+        case .shift:
+            return shiftKey
+        case .option:
+            return optionKey
+        case .control:
+            return controlKey
+        }
     }
 
     private static func keyCode(for token: String) -> Int? {
