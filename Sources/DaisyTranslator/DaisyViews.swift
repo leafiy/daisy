@@ -140,13 +140,13 @@ struct DaisySettingsView: View {
 
     var body: some View {
         SettingsScaffold {
-            SettingsPane("服务", systemImage: "globe") {
+            SettingsPane("服务", systemImage: "globe", height: 480) {
                 Section("服务") {
                     ProviderConfigurationForm(model: model)
                     providerHint
                 }
             }
-            SettingsPane("工作流", systemImage: "slider.horizontal.3") {
+            SettingsPane("工作流", systemImage: "slider.horizontal.3", height: 560) {
                 Section("快捷翻译") {
                     Toggle("快捷翻译", isOn: settingsBinding(\.quickTranslateEnabled))
                     Text("翻译选中文本并在弹出工具条中显示译文")
@@ -182,7 +182,7 @@ struct DaisySettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            SettingsPane("隐私", systemImage: "hand.raised") {
+            SettingsPane("隐私", systemImage: "hand.raised", height: 360) {
                 Section("隐私") {
                     Text("""
 Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析数据。
@@ -456,18 +456,14 @@ struct DaisyMenuBarMenu: View {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    private enum Metrics {
-        static let iconSize: CGFloat = 18
-    }
+    /// Sized once: the status bar draws the NSImage's own point size, and
+    /// label views re-render on every model change.
+    private static let icon = NSImage.daisyIcon()?.leafiyMenuBarSized()
 
     var body: some View {
         HStack(spacing: LeafiyDesign.Spacing.xs) {
-            if let image = NSImage.daisyIcon() {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: Metrics.iconSize, height: Metrics.iconSize)
+            if let icon = Self.icon {
+                Image(nsImage: icon)
             } else {
                 Text("daisy")
             }
