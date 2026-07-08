@@ -72,7 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LeafiyLocalization.language = loadedSettings.selectedAppLanguage
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
-        configureApplicationIcon()
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installTranslationBridgeHost()
@@ -152,15 +151,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func translateClipboardAndCopyWithoutWindow() {
-        let text = pasteboardService.readTextVerified().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            showStatusMessage(L("Clipboard is empty"))
-            return
-        }
-        startQuickTranslation { text }
-    }
-
     private func configureModelCallbacks() {
         model.onSettingsChanged = { [weak self] nextSettings in
             self?.saveSettings(nextSettings)
@@ -168,9 +158,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.translateText = { [weak self] text, settings in
             guard let self else { return "" }
             return try await self.translate(text, settings: settings)
-        }
-        model.readClipboardText = { [weak self] in
-            self?.pasteboardService.readTextVerified() ?? ""
         }
         model.writeClipboardText = { [weak self] text in
             self?.pasteboardService.writeText(text) ?? false
@@ -274,8 +261,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyCenter.onHotKey = { [weak self] hotKey in
             guard let self else { return }
             switch hotKey {
-            case .translateClipboard:
-                self.model.pullClipboardAndTranslate()
             case .quickTranslateSelection:
                 self.translateSelectionWithoutWindow()
             case .toggleAlwaysOnTop:
@@ -297,16 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func configureApplicationIcon() {
-        if let image = NSImage.daisyIcon() {
-            NSApp.applicationIconImage = image
-        }
-    }
-
     private func translateSelectionWithoutWindow() {
         guard ensureAccessibilityPermission() else { return }
         let anchor = QuickTranslatePopupController.currentSelectionRect()
-        startQuickTranslation(presenting: .popup(anchor: anchor)) { [pasteboardService] in
+        startQuickTranslation(above: anchor) { [pasteboardService] in
             let selection = try await pasteboardService.copySelectedTextFromFrontmostApp()?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let selection, !selection.isEmpty else { return nil }
@@ -314,13 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private enum QuickTranslationPresentation {
-        case clipboard
-        case popup(anchor: NSRect?)
-    }
-
     private func startQuickTranslation(
-        presenting presentation: QuickTranslationPresentation = .clipboard,
+        above anchor: NSRect?,
         _ makeSourceText: @escaping @MainActor () async throws -> String?
     ) {
         clipboardShortcutTask?.cancel()
@@ -337,20 +311,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
-                switch presentation {
-                case .clipboard:
-                    if self.pasteboardService.writeText(translated) {
-                        self.showStatusMessage(L("Translated and copied"))
-                    } else {
-                        self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
-                    }
-                case .popup(let anchor):
-                    let autoCopy = settingsSnapshot.quickTranslateAutoCopy
-                    if autoCopy, !self.pasteboardService.writeText(translated) {
-                        self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
-                    }
-                    self.quickTranslatePopup.show(text: translated, autoCopyEnabled: autoCopy, above: anchor)
+                let autoCopy = settingsSnapshot.quickTranslateAutoCopy
+                if autoCopy, !self.pasteboardService.writeText(translated) {
+                    self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
                 }
+                self.quickTranslatePopup.show(text: translated, autoCopyEnabled: autoCopy, above: anchor)
             } catch {
                 guard !Task.isCancelled else { return }
                 let message = String(

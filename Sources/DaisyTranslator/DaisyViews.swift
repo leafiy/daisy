@@ -31,27 +31,18 @@ struct TranslatorView: View {
         }
         .leafiyToast(model.transientStatusMessage)
         .toolbar {
-            ToolbarItemGroup {
-                Button(L("Read Clipboard")) {
-                    model.pullClipboardAndTranslate()
-                }
+            ToolbarItem {
                 Button(L("Translate")) {
                     model.translateCurrentText()
                 }
-                Button(L("Copy")) {
-                    model.copyResult()
-                }
-                Button(L("Paste to Front App")) {
-                    model.pasteResult()
-                }
-                Button(L("Clear")) {
-                    model.clear()
-                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     model.updateSettings { $0.alwaysOnTop.toggle() }
                 } label: {
-                    Label(L("Pin Window"), systemImage: model.settings.alwaysOnTop ? "pin.fill" : "pin")
+                    Image(systemName: model.settings.alwaysOnTop ? "pin.fill" : "pin")
                 }
+                .help(L("Pin Window"))
             }
         }
         .sheet(isPresented: Binding(
@@ -72,15 +63,15 @@ struct TranslatorView: View {
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
             LeafiyCard {
-                TextEditor(text: Binding(
-                    get: { model.sourceText },
-                    set: { newValue in
-                        model.sourceText = newValue
+                SourceTextEditor(
+                    text: Binding(
+                        get: { model.sourceText },
+                        set: { model.sourceText = $0 }
+                    ),
+                    onTextChange: {
                         model.sourceTextDidChange()
                     }
-                ))
-                .font(.body)
-                .scrollContentBackground(.hidden)
+                )
                 .accessibilityLabel(L("Source input"))
             }
 
@@ -114,7 +105,7 @@ struct TranslatorView: View {
     @ViewBuilder
     private var resultPane: some View {
         if model.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            EmptyStateView(systemImage: "text.bubble", title: L("No translation yet"), subtitle: L("Enter source text or read the clipboard to start translating"))
+            EmptyStateView(systemImage: "text.bubble", title: L("No translation yet"), subtitle: L("Enter source text to start translating"))
         } else {
             ScrollView {
                 Text(model.translatedText)
@@ -132,6 +123,109 @@ struct TranslatorView: View {
                 model.updateSettings { $0[keyPath: keyPath] = value }
             }
         )
+    }
+}
+
+private struct SourceTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let onTextChange: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onTextChange: onTextChange)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.autoresizingMask = [.width]
+        textView.allowsDocumentBackgroundColorChange = false
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.onTextChange = onTextChange
+
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+
+        // During IME composition, rewriting NSTextView.string from SwiftUI commits
+        // or cancels the marked text. Let AppKit own the editor until composition
+        // finishes, then sync the committed text through the delegate.
+        guard !textView.hasMarkedText() else { return }
+        guard textView.string != text else { return }
+
+        context.coordinator.isApplyingProgrammaticChange = true
+        let selectedRange = textView.selectedRange()
+        textView.string = text
+        let textLength = (text as NSString).length
+        if selectedRange.location <= textLength {
+            textView.setSelectedRange(NSRange(
+                location: selectedRange.location,
+                length: min(selectedRange.length, textLength - selectedRange.location)
+            ))
+        } else {
+            textView.setSelectedRange(NSRange(location: textLength, length: 0))
+        }
+        context.coordinator.isApplyingProgrammaticChange = false
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var onTextChange: () -> Void
+        var isApplyingProgrammaticChange = false
+        weak var textView: NSTextView?
+
+        init(text: Binding<String>, onTextChange: @escaping () -> Void) {
+            self.text = text
+            self.onTextChange = onTextChange
+        }
+
+        func textDidChange(_ notification: Notification) {
+            syncCommittedText()
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            syncCommittedText()
+        }
+
+        private func syncCommittedText() {
+            guard !isApplyingProgrammaticChange else { return }
+            guard let textView else { return }
+            guard !textView.hasMarkedText() else { return }
+
+            let newValue = textView.string
+            guard newValue != text.wrappedValue else { return }
+            text.wrappedValue = newValue
+            onTextChange()
+        }
     }
 }
 
@@ -417,10 +511,6 @@ struct DaisyMenuBarMenu: View {
         Button(appDelegate.isMainWindowVisible ? L("Hide Window") : L("Show Window")) {
             appDelegate.toggleMainWindow(openWindow: openWindow)
         }
-        Divider()
-        Button(L("Read Clipboard, Translate, and Copy")) {
-            appDelegate.translateClipboardAndCopyWithoutWindow()
-        }
         Button(L("Paste Current Translation")) {
             model.pasteResult()
         }
@@ -466,16 +556,11 @@ struct DaisyMenuBarMenu: View {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    /// Sized once: the status bar draws the NSImage's own point size, and
-    /// label views re-render on every model change.
-    private static let icon = NSImage.daisyIcon()?.leafiyMenuBarSized()
-
     var body: some View {
         HStack(spacing: LeafiyDesign.Spacing.xs) {
-            if let icon = Self.icon {
-                Image(nsImage: icon)
-            } else {
-                Text(verbatim: "daisy")
+            if let image = NSImage.daisyIcon()?.leafiyMenuBarSized() {
+                Image(nsImage: image)
+                    .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
             }
             if let message = model.menuBarStatusText, !message.isEmpty {
                 Text(message)

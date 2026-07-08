@@ -40,7 +40,7 @@
 "Daisy does not collect accounts, device identifiers, contacts, browsing history, or analytics data.\n\nWhen you use Apple System Translation, translation is handled by macOS system translation. If you switch to external services such as DeepSeek, Google, Baidu, or OpenAI-compatible, the source text is sent to the translation endpoint you configure in General; the translation is returned by that service. API keys are stored only in the local settings file and are used to request the service you choose.\n\nClipboard watching is off by default. When enabled, Daisy reads clipboard text locally and translates it according to your configuration. Auto paste requires macOS Accessibility permission; Daisy sends Cmd+V only when paste is triggered." = "Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析数据。\n\n当你使用 Apple 系统翻译时，翻译由 macOS 的系统翻译能力处理。改用 DeepSeek、Google、百度或 OpenAI-compatible 等外部服务时，原文会发送到你在“通用”里配置的翻译接口；译文由该服务返回。API Key 只保存在本机设置文件中，用于请求你选择的服务。\n\n剪贴板监听默认关闭。开启后，Daisy 会在本机读取剪贴板文本，并按你的配置进行翻译。自动粘贴需要 macOS 辅助功能权限，Daisy 只在触发粘贴时发送 Cmd+V。";
 "DeepSeek API Key" = "DeepSeek API Key";
 "English" = "英语";
-"Enter source text or read the clipboard to start translating" = "输入原文或读取剪贴板后开始翻译";
+"Enter source text to start translating" = "输入原文后开始翻译";
 "Failed to save. Check settings file permissions." = "存储失败，请检查设置文件权限";
 "Failed to send keystroke. Check Accessibility permission." = "发送按键失败，请检查辅助功能权限";
 "Failed to write to clipboard. Try again." = "写入剪贴板失败，请重试";
@@ -72,8 +72,6 @@
 "Quick Translate Auto Copy" = "快捷翻译自动拷贝";
 "Quick translate needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again." = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。\n\n如果列表里 Daisy 已开启但仍弹出本提示，说明授权已因应用重新构建而失效：请在“辅助功能”列表中用“−”移除 Daisy 后重新添加。";
 "Quit Daisy" = "退出 Daisy";
-"Read Clipboard" = "读取剪贴板";
-"Read Clipboard, Translate, and Copy" = "读取剪贴板，翻译并拷贝";
 "Read clipboard" = "已读取剪贴板";
 "Ready" = "就绪";
 "Settings…" = "设置…";

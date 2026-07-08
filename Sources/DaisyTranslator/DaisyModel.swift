@@ -14,7 +14,6 @@ final class DaisyModel: ObservableObject {
 
     var onSettingsChanged: ((AppSettings) -> Void)?
     var translateText: ((String, AppSettings) async throws -> String)?
-    var readClipboardText: (() -> String)?
     var writeClipboardText: ((String) -> Bool)?
     var pasteIntoFrontmostApp: ((String) async throws -> Void)?
     var ensurePastePermission: (() -> Bool)?
@@ -89,16 +88,6 @@ final class DaisyModel: ObservableObject {
         sourceText = text
         statusText = L("Read clipboard")
         scheduleTranslation()
-    }
-
-    func pullClipboardAndTranslate() {
-        let text = readClipboardText?() ?? ""
-        guard !text.isEmpty else {
-            statusText = L("Clipboard is empty")
-            return
-        }
-        sourceText = text
-        translateCurrentText()
     }
 
     func retryCurrentText() {
@@ -177,18 +166,6 @@ final class DaisyModel: ObservableObject {
             guard currentRequestID == requestID else { return }
             translatedText = ""
             statusText = TranslationService.userFacingErrorMessage(error, provider: requestSettings.provider)
-        }
-    }
-
-    func copyResult() {
-        let result = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !result.isEmpty else { return }
-        if writeClipboardText?(result) == true {
-            statusText = L("Copied")
-            showTransientStatus(L("Copied"))
-        } else {
-            statusText = L("Copy failed")
-            showTransientStatus(L("Copy failed. Try again."))
         }
     }
 
