@@ -108,13 +108,15 @@ extension TargetLanguage {
 
 extension NSImage {
     static func daisyIcon() -> NSImage? {
-        for subdirectory in [nil, "Icons"] as [String?] {
-            guard let url = Bundle.module.url(forResource: "daisy", withExtension: "png", subdirectory: subdirectory),
-                  let image = NSImage(contentsOf: url) else {
-                continue
+        for bundle in [Bundle.main, Bundle.module] {
+            for subdirectory in [nil, "Icons"] as [String?] {
+                guard let url = bundle.url(forResource: "daisy", withExtension: "png", subdirectory: subdirectory),
+                      let image = NSImage(contentsOf: url) else {
+                    continue
+                }
+                image.accessibilityDescription = "Daisy"
+                return image
             }
-            image.accessibilityDescription = "Daisy"
-            return image
         }
         return nil
     }

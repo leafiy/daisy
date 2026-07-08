@@ -558,7 +558,7 @@ struct DaisyMenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: LeafiyDesign.Spacing.xs) {
-            if let image = NSImage.daisyIcon()?.leafiyMenuBarSized() {
+            if let image = NSImage.daisyIcon()?.leafiyMenuBarTemplateSized() {
                 Image(nsImage: image)
                     .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
             }
