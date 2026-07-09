@@ -15,8 +15,7 @@ struct TranslatorView: View {
                 minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
                 minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
             )
-            .opacity(isGhosted ? 0.55 : 1)
-            .blur(radius: isGhosted ? 3 : 0)
+            .blur(radius: isGhosted ? 4 : 0)
             .animation(.easeInOut(duration: 0.2), value: isGhosted)
             .overlay(alignment: .topLeading) {
                 appleTranslationBridge

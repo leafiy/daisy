@@ -65,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardShortcutTask: Task<Void, Never>?
     private var isClipboardWatcherPaused = false
     private var translationBridgeHostWindow: NSWindow?
+    private var savedStandardFrame: NSRect?
+    private var appliedMinimalLayout: Bool?
+    private var windowFocusObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
@@ -79,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKeys()
         prepareAppleSystemTranslationIfNeeded()
         applyWindowBehavior()
+        observeWindowFocus()
         NSApp.activate(ignoringOtherApps: true)
         if shouldShowOnboarding || !loadedSettings.onboardingCompleted {
             model.presentOnboardingIfNeeded()
@@ -89,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
         hotKeyCenter.unregister()
+        windowFocusObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -149,13 +154,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.level = .normal
             window.collectionBehavior.remove([.canJoinAllSpaces, .fullScreenAuxiliary])
         }
-        applyMinimalModeChrome(to: window)
+        applyMinimalMode(to: window)
+        // A settings-driven change re-renders the SwiftUI window, which can
+        // restore the standard title bar a beat later; re-assert minimal
+        // chrome on the next runloop so it sticks.
+        Task { @MainActor in
+            guard let window = self.findMainWindow() else { return }
+            self.applyMinimalMode(to: window)
+        }
     }
 
-    /// In minimal mode the window sheds its chrome: traffic lights vanish,
-    /// the title bar goes transparent and title-less, and the whole surface
-    /// becomes draggable. Standard mode restores all of it.
-    private func applyMinimalModeChrome(to window: NSWindow) {
+    /// Strips the window down to just its content in minimal mode: no traffic
+    /// lights, no title, a transparent title bar, drag-anywhere, and a compact
+    /// frame. Standard mode restores the full chrome and the previous size.
+    private func applyMinimalMode(to window: NSWindow) {
         let minimal = model.settings.minimalMode
         window.standardWindowButton(.closeButton)?.isHidden = minimal
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
@@ -163,6 +175,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titleVisibility = minimal ? .hidden : .visible
         window.titlebarAppearsTransparent = minimal
         window.isMovableByWindowBackground = minimal
+        applyMinimalSize(to: window, minimal: minimal)
+        updateMinimalTransparency(window)
+    }
+
+    /// Shrinks to a compact frame when entering minimal mode and restores the
+    /// prior frame when leaving. Only fires on an actual transition.
+    private func applyMinimalSize(to window: NSWindow, minimal: Bool) {
+        guard appliedMinimalLayout != minimal else { return }
+        appliedMinimalLayout = minimal
+        if minimal {
+            savedStandardFrame = window.frame
+            let target = NSRect(
+                x: window.frame.minX,
+                y: window.frame.maxY - MinimalWindow.height,
+                width: MinimalWindow.width,
+                height: MinimalWindow.height
+            )
+            window.setFrame(target, display: true, animate: true)
+        } else if let saved = savedStandardFrame {
+            window.setFrame(saved, display: true, animate: true)
+            savedStandardFrame = nil
+        }
+    }
+
+    /// While minimal and pinned, the window fades to a translucent ghost
+    /// whenever it is not the key window, and returns to full opacity on focus.
+    private func updateMinimalTransparency(_ window: NSWindow) {
+        let ghosted = model.settings.minimalMode
+            && model.settings.alwaysOnTop
+            && !window.isKeyWindow
+        window.animator().alphaValue = ghosted ? 0.55 : 1
+    }
+
+    /// Re-evaluates minimal-mode translucency whenever any window gains or
+    /// loses key status (including the app itself deactivating).
+    private func observeWindowFocus() {
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification
+        ]
+        windowFocusObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let window = self.findMainWindow() else { return }
+                    self.updateMinimalTransparency(window)
+                }
+            }
+        }
+    }
+
+    private enum MinimalWindow {
+        static let width: CGFloat = 340
+        static let height: CGFloat = 260
     }
 
     private func configureModelCallbacks() {
