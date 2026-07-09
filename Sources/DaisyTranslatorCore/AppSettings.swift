@@ -42,6 +42,7 @@ public struct AppSettings: Codable, Equatable {
     public var autoCopy: Bool
     public var autoPaste: Bool
     public var alwaysOnTop: Bool
+    public var minimalMode: Bool
     public var quickTranslateEnabled: Bool
     public var quickTranslateShortcut: String
     public var quickTranslateAutoCopy: Bool
@@ -63,6 +64,7 @@ public struct AppSettings: Codable, Equatable {
         autoCopy: Bool,
         autoPaste: Bool,
         alwaysOnTop: Bool,
+        minimalMode: Bool = false,
         quickTranslateEnabled: Bool = false,
         quickTranslateShortcut: String = "Command+Shift+V",
         quickTranslateAutoCopy: Bool = true,
@@ -91,6 +93,7 @@ public struct AppSettings: Codable, Equatable {
         self.autoCopy = autoCopy
         self.autoPaste = autoPaste
         self.alwaysOnTop = alwaysOnTop
+        self.minimalMode = minimalMode
     }
 
     public static func defaults(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppSettings {
@@ -115,6 +118,7 @@ public struct AppSettings: Codable, Equatable {
             autoCopy: true,
             autoPaste: false,
             alwaysOnTop: false,
+            minimalMode: false,
             quickTranslateEnabled: false,
             quickTranslateShortcut: "Command+Shift+V",
             quickTranslateAutoCopy: true,
@@ -205,6 +209,7 @@ public struct AppSettings: Codable, Equatable {
         case autoCopy
         case autoPaste
         case alwaysOnTop
+        case minimalMode
         case quickTranslateEnabled
         case quickTranslateShortcut
         case quickTranslateAutoCopy
@@ -241,6 +246,7 @@ public struct AppSettings: Codable, Equatable {
         autoCopy = try container.decodeIfPresent(Bool.self, forKey: .autoCopy) ?? defaults.autoCopy
         autoPaste = try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? defaults.autoPaste
         alwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? defaults.alwaysOnTop
+        minimalMode = try container.decodeIfPresent(Bool.self, forKey: .minimalMode) ?? defaults.minimalMode
         quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
         targetLanguage = try container.decodeIfPresent(TargetLanguage.self, forKey: .targetLanguage) ?? defaults.targetLanguage
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut

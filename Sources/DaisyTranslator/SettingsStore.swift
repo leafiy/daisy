@@ -78,6 +78,7 @@ final class SettingsStore {
             autoCopy: stored.autoCopy,
             autoPaste: stored.autoPaste,
             alwaysOnTop: stored.alwaysOnTop,
+            minimalMode: stored.minimalMode,
             quickTranslateEnabled: stored.quickTranslateEnabled,
             quickTranslateShortcut: stored.quickTranslateShortcut.isEmpty ? defaults.quickTranslateShortcut : stored.quickTranslateShortcut,
             provider: stored.provider,

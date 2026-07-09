@@ -7,8 +7,54 @@ import LeafiyUICore
 struct TranslatorView: View {
     @ObservedObject var model: DaisyModel
     let appleTranslationBridge: AnyView
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
+        content
+            .frame(
+                minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
+                minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
+            )
+            .opacity(isGhosted ? 0.55 : 1)
+            .blur(radius: isGhosted ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isGhosted)
+            .overlay(alignment: .topLeading) {
+                appleTranslationBridge
+                    .frame(width: 1, height: 1)
+                    .opacity(0)
+                    .allowsHitTesting(false)
+            }
+            .leafiyToast(model.transientStatusMessage)
+            .sheet(isPresented: Binding(
+                get: { model.isOnboardingPresented },
+                set: { presented in
+                    if !presented {
+                        model.dismissOnboardingForNow()
+                    }
+                }
+            )) {
+                OnboardingView(model: model)
+            }
+    }
+
+    /// The unobtrusive floating state: only in minimal mode, only while
+    /// pinned on top, and only when this window is not the key window.
+    private var minimalMode: Bool { model.settings.minimalMode }
+
+    private var isGhosted: Bool {
+        minimalMode && model.settings.alwaysOnTop && controlActiveState != .key
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if minimalMode {
+            minimalContent
+        } else {
+            standardContent
+        }
+    }
+
+    private var standardContent: some View {
         VStack(spacing: 0) {
             mainContent
             FooterBar {
@@ -19,17 +65,6 @@ struct TranslatorView: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(
-            minWidth: LeafiyDesign.Size.mainWindowMinWidth,
-            minHeight: LeafiyDesign.Size.mainWindowMinHeight
-        )
-        .overlay(alignment: .topLeading) {
-            appleTranslationBridge
-                .frame(width: 1, height: 1)
-                .opacity(0)
-                .allowsHitTesting(false)
-        }
-        .leafiyToast(model.transientStatusMessage)
         .toolbar {
             ToolbarItem {
                 Button(L("Translate")) {
@@ -37,24 +72,50 @@ struct TranslatorView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.updateSettings { $0.alwaysOnTop.toggle() }
-                } label: {
-                    Image(systemName: model.settings.alwaysOnTop ? "pin.fill" : "pin")
-                }
-                .help(L("Pin Window"))
+                pinButton
             }
         }
-        .sheet(isPresented: Binding(
-            get: { model.isOnboardingPresented },
-            set: { presented in
-                if !presented {
-                    model.dismissOnboardingForNow()
-                }
+    }
+
+    private var minimalContent: some View {
+        VStack(spacing: LeafiyDesign.Spacing.s) {
+            HStack(spacing: LeafiyDesign.Spacing.xs) {
+                Spacer()
+                pinButton
+                    .buttonStyle(.borderless)
             }
-        )) {
-            OnboardingView(model: model)
+            LeafiyCard {
+                SourceTextEditor(
+                    text: Binding(
+                        get: { model.sourceText },
+                        set: { model.sourceText = $0 }
+                    ),
+                    onTextChange: {
+                        model.sourceTextDidChange()
+                    }
+                )
+                .accessibilityLabel(L("Source input"))
+            }
+            LeafiyCard {
+                resultPane
+                    .accessibilityLabel(L("Translation output"))
+            }
         }
+        .padding(LeafiyDesign.Spacing.m)
+    }
+
+    private var pinButton: some View {
+        Button {
+            model.updateSettings { $0.alwaysOnTop.toggle() }
+        } label: {
+            Image(systemName: model.settings.alwaysOnTop ? "pin.fill" : "pin")
+        }
+        .help(L("Pin Window"))
+    }
+
+    private enum MinimalLayout {
+        static let minWidth: CGFloat = 300
+        static let minHeight: CGFloat = 220
     }
 
     private var mainContent: some View {
@@ -527,6 +588,7 @@ struct DaisyMenuBarMenu: View {
             }
         }
         Divider()
+        Toggle(L("Minimal Mode"), isOn: settingsBinding(\.minimalMode))
         Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
         Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
         Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))

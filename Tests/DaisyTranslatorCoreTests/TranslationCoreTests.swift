@@ -265,6 +265,17 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(englishTargetLanguage.targetLanguage, .english)
     }
 
+    func testAppSettingsDecodingDefaultsMissingMinimalModeToFalseAndReadsExplicitTrue() throws {
+        let missingMinimalMode = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(missingMinimalMode.minimalMode)
+
+        let enabledMinimalMode = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"minimalMode":true}"#.utf8)
+        )
+        XCTAssertTrue(enabledMinimalMode.minimalMode)
+    }
+
     func testAppSettingsDecodingDefaultsMissingQuickTranslateAutoCopyToTrueAndReadsExplicitFalse() throws {
         let missingQuickTranslateAutoCopy = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         XCTAssertTrue(missingQuickTranslateAutoCopy.quickTranslateAutoCopy)
@@ -283,6 +294,15 @@ final class TranslationCoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: try JSONEncoder().encode(settings))
 
         XCTAssertEqual(decoded.appLanguage, "zh-Hans")
+    }
+
+    func testAppSettingsEncodingRoundTripPreservesMinimalMode() throws {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.minimalMode = true
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: try JSONEncoder().encode(settings))
+
+        XCTAssertTrue(decoded.minimalMode)
     }
 
     func testAppSettingsDefaultsHonorTargetLanguageEnvironmentOverride() {

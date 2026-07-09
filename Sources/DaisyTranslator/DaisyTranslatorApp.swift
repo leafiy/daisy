@@ -149,6 +149,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.level = .normal
             window.collectionBehavior.remove([.canJoinAllSpaces, .fullScreenAuxiliary])
         }
+        applyMinimalModeChrome(to: window)
+    }
+
+    /// In minimal mode the window sheds its chrome: traffic lights vanish,
+    /// the title bar goes transparent and title-less, and the whole surface
+    /// becomes draggable. Standard mode restores all of it.
+    private func applyMinimalModeChrome(to window: NSWindow) {
+        let minimal = model.settings.minimalMode
+        window.standardWindowButton(.closeButton)?.isHidden = minimal
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
+        window.standardWindowButton(.zoomButton)?.isHidden = minimal
+        window.titleVisibility = minimal ? .hidden : .visible
+        window.titlebarAppearsTransparent = minimal
+        window.isMovableByWindowBackground = minimal
     }
 
     private func configureModelCallbacks() {
