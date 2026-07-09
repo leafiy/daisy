@@ -15,8 +15,6 @@ struct TranslatorView: View {
                 minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
                 minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
             )
-            .blur(radius: isGhosted ? 4 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isGhosted)
             .overlay(alignment: .topLeading) {
                 appleTranslationBridge
                     .frame(width: 1, height: 1)
@@ -100,7 +98,24 @@ struct TranslatorView: View {
                     .accessibilityLabel(L("Translation output"))
             }
         }
+        .opacity(isGhosted ? 0.7 : 1)
+        .blur(radius: isGhosted ? 2 : 0)
         .padding(LeafiyDesign.Spacing.m)
+        .padding(.top, MinimalLayout.titleBarInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(minimalBackground)
+        .animation(.easeInOut(duration: 0.2), value: isGhosted)
+    }
+
+    /// Solid window backing while focused; a frosted, behind-window blur once
+    /// the pinned window drops out of focus.
+    @ViewBuilder
+    private var minimalBackground: some View {
+        if isGhosted {
+            VisualEffectBackground().ignoresSafeArea()
+        } else {
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
+        }
     }
 
     private var pinButton: some View {
@@ -115,6 +130,7 @@ struct TranslatorView: View {
     private enum MinimalLayout {
         static let minWidth: CGFloat = 300
         static let minHeight: CGFloat = 220
+        static let titleBarInset: CGFloat = 28
     }
 
     private var mainContent: some View {
@@ -628,5 +644,25 @@ struct DaisyMenuBarLabel: View {
             }
         }
         .accessibilityLabel(Text(verbatim: "Daisy"))
+    }
+}
+
+/// Frosted, behind-window blur used as the minimal-mode ghost backing.
+private struct VisualEffectBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
     }
 }

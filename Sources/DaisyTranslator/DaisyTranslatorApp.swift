@@ -67,7 +67,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var translationBridgeHostWindow: NSWindow?
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
-    private var windowFocusObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
@@ -82,7 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKeys()
         prepareAppleSystemTranslationIfNeeded()
         applyWindowBehavior()
-        observeWindowFocus()
         NSApp.activate(ignoringOtherApps: true)
         if shouldShowOnboarding || !loadedSettings.onboardingCompleted {
             model.presentOnboardingIfNeeded()
@@ -93,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
         hotKeyCenter.unregister()
-        windowFocusObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -164,19 +161,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Strips the window down to just its content in minimal mode: no traffic
-    /// lights, no title, a transparent title bar, drag-anywhere, and a compact
-    /// frame. Standard mode restores the full chrome and the previous size.
+    /// Strips the window to just its content in minimal mode: no traffic
+    /// lights, no title, a transparent full-size title bar, a translucent
+    /// (frosted) backing, and a compact frame. Standard mode restores the
+    /// full chrome, opacity, and previous size.
     private func applyMinimalMode(to window: NSWindow) {
         let minimal = model.settings.minimalMode
+        if minimal {
+            window.styleMask.insert(.fullSizeContentView)
+        } else {
+            window.styleMask.remove(.fullSizeContentView)
+        }
+        window.titlebarAppearsTransparent = minimal
+        window.titleVisibility = minimal ? .hidden : .visible
+        window.isOpaque = !minimal
+        window.backgroundColor = minimal ? .clear : .windowBackgroundColor
         window.standardWindowButton(.closeButton)?.isHidden = minimal
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
         window.standardWindowButton(.zoomButton)?.isHidden = minimal
-        window.titleVisibility = minimal ? .hidden : .visible
-        window.titlebarAppearsTransparent = minimal
-        window.isMovableByWindowBackground = minimal
         applyMinimalSize(to: window, minimal: minimal)
-        updateMinimalTransparency(window)
     }
 
     /// Shrinks to a compact frame when entering minimal mode and restores the
@@ -199,36 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// While minimal and pinned, the window fades to a translucent ghost
-    /// whenever it is not the key window, and returns to full opacity on focus.
-    private func updateMinimalTransparency(_ window: NSWindow) {
-        let ghosted = model.settings.minimalMode
-            && model.settings.alwaysOnTop
-            && !window.isKeyWindow
-        window.animator().alphaValue = ghosted ? 0.55 : 1
-    }
-
-    /// Re-evaluates minimal-mode translucency whenever any window gains or
-    /// loses key status (including the app itself deactivating).
-    private func observeWindowFocus() {
-        let center = NotificationCenter.default
-        let names: [Notification.Name] = [
-            NSWindow.didBecomeKeyNotification,
-            NSWindow.didResignKeyNotification
-        ]
-        windowFocusObservers = names.map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, let window = self.findMainWindow() else { return }
-                    self.updateMinimalTransparency(window)
-                }
-            }
-        }
-    }
-
     private enum MinimalWindow {
         static let width: CGFloat = 340
-        static let height: CGFloat = 260
+        static let height: CGFloat = 300
     }
 
     private func configureModelCallbacks() {
