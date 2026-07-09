@@ -741,7 +741,12 @@ enum SelfTest {
             let baiduURL = try TranslationService.resolveBaiduTranslateURL("https://fanyi-api.baidu.com/")
             guard baiduURL.absoluteString == "https://fanyi-api.baidu.com/ait/api/aiTextTranslate" else { throw SelfTestError.urlResolution }
             guard TranslationService.baiduSignature(appID: "2015063000000001", query: "apple", salt: "1435660288", secret: "12345678") == "f89f9594663708c1605f3d736d01d2d4" else { throw SelfTestError.urlResolution }
-            guard Bundle.module.url(forResource: "daisy", withExtension: "png") != nil else { throw SelfTestError.iconResource }
+            guard let icon = NSImage.daisyAppIcon(),
+                  let representation = icon.representations.first,
+                  representation.pixelsWide >= 128,
+                  representation.pixelsHigh >= 128 else {
+                throw SelfTestError.iconResource
+            }
             print("self-test passed")
         } catch {
             fputs("self-test failed: \(error.localizedDescription)\n", stderr)

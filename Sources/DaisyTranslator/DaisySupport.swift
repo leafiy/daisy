@@ -107,8 +107,23 @@ extension TargetLanguage {
 }
 
 extension NSImage {
+    static func daisyAppIcon() -> NSImage? {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            image.accessibilityDescription = "Daisy"
+            return image
+        }
+
+        if let image = NSApplication.shared.applicationIconImage,
+           !image.representations.isEmpty {
+            image.accessibilityDescription = "Daisy"
+            return image
+        }
+        return nil
+    }
+
     static func daisyIcon() -> NSImage? {
-        for bundle in [Bundle.main, Bundle.module] {
+        for bundle in [daisyResources, Bundle.main] {
             for subdirectory in [nil, "Icons"] as [String?] {
                 guard let url = bundle.url(forResource: "daisy", withExtension: "png", subdirectory: subdirectory),
                       let image = NSImage(contentsOf: url) else {
@@ -119,5 +134,20 @@ extension NSImage {
             }
         }
         return nil
+    }
+
+    private static var daisyResources: Bundle {
+        let bundleName = "DaisyTranslator_DaisyTranslator.bundle"
+        let candidates = [
+            Bundle.main.resourceURL?.appendingPathComponent(bundleName, isDirectory: true),
+            Bundle.main.bundleURL.appendingPathComponent(bundleName, isDirectory: true)
+        ].compactMap { $0 }
+
+        for url in candidates {
+            if let bundle = Bundle(url: url) {
+                return bundle
+            }
+        }
+        return Bundle.main
     }
 }
