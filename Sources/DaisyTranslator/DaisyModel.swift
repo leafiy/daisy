@@ -11,6 +11,8 @@ final class DaisyModel: ObservableObject {
     @Published var transientStatusMessage: String?
     @Published var isOnboardingPresented = false
     @Published private(set) var activeTranslationCount = 0
+    /// Whether the minimal window is currently folded into the corner capsule.
+    @Published private(set) var isMinimalCapsuleCollapsed = false
 
     var onSettingsChanged: ((AppSettings) -> Void)?
     var translateText: ((String, AppSettings) async throws -> String)?
@@ -34,6 +36,11 @@ final class DaisyModel: ObservableObject {
 
     func replaceSettings(_ settings: AppSettings) {
         self.settings = settings
+    }
+
+    func setMinimalCapsuleCollapsed(_ collapsed: Bool) {
+        guard isMinimalCapsuleCollapsed != collapsed else { return }
+        isMinimalCapsuleCollapsed = collapsed
     }
 
     func presentOnboardingIfNeeded() {

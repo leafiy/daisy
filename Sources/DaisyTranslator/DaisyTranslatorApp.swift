@@ -49,6 +49,15 @@ struct DaisyApp: App {
     }
 }
 
+/// Geometry of the folded minimal window; shared between the AppKit frame
+/// transition and the SwiftUI capsule content's minimum frame.
+enum MinimalCapsule {
+    static let width: CGFloat = 128
+    static let height: CGFloat = 40
+    static let screenMargin: CGFloat = 16
+    static let collapseDelayNanoseconds: UInt64 = 60 * 1_000_000_000
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = DaisyModel()
@@ -67,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var translationBridgeHostWindow: NSWindow?
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
+    private var savedMinimalFrame: NSRect?
+    private var capsuleCollapseTask: Task<Void, Never>?
+    private var windowKeyObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
@@ -76,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.replaceSettings(loadedSettings)
         configureModelCallbacks()
         configureQuickTranslatePopup()
+        installWindowKeyObservers()
         installTranslationBridgeHost()
         updateClipboardWatcher()
         registerHotKeys()
@@ -90,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
+        capsuleCollapseTask?.cancel()
         hotKeyCenter.unregister()
     }
 
@@ -130,6 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleMainWindow(openWindow: OpenWindowAction) {
         if let window = findMainWindow(), window.isVisible {
+            // Never hide in the folded state: the next show should present
+            // the regular minimal window, not a stray corner capsule.
+            cancelScheduledCapsuleCollapse()
+            expandMinimalCapsule()
             window.orderOut(nil)
         } else {
             openWindow(id: "main")
@@ -144,6 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applyWindowBehavior() {
         guard let window = findMainWindow() else { return }
+        if !model.settings.minimalMode {
+            cancelScheduledCapsuleCollapse()
+            model.setMinimalCapsuleCollapsed(false)
+            savedMinimalFrame = nil
+        }
         if model.settings.alwaysOnTop {
             window.level = .floating
             window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
@@ -219,6 +242,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum MinimalWindow {
         static let width: CGFloat = 340
         static let height: CGFloat = 300
+    }
+
+    /// A minute out of key focus folds the minimal window into a small
+    /// capsule in the screen's top-right corner; the click that makes it key
+    /// again (or regaining focus any other way) restores the saved frame.
+    private func installWindowKeyObservers() {
+        let center = NotificationCenter.default
+        windowKeyObservers.append(center.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let window = notification.object as? NSWindow
+            Task { @MainActor in
+                guard let self, let window, window == self.findMainWindow() else { return }
+                self.scheduleCapsuleCollapse()
+            }
+        })
+        windowKeyObservers.append(center.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let window = notification.object as? NSWindow
+            Task { @MainActor in
+                guard let self, let window, window == self.findMainWindow() else { return }
+                self.cancelScheduledCapsuleCollapse()
+                self.expandMinimalCapsule()
+            }
+        })
+    }
+
+    private func scheduleCapsuleCollapse() {
+        cancelScheduledCapsuleCollapse()
+        guard model.settings.minimalMode, !model.isMinimalCapsuleCollapsed else { return }
+        capsuleCollapseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: MinimalCapsule.collapseDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            self?.collapseMinimalCapsule()
+        }
+    }
+
+    private func cancelScheduledCapsuleCollapse() {
+        capsuleCollapseTask?.cancel()
+        capsuleCollapseTask = nil
+    }
+
+    private func collapseMinimalCapsule() {
+        guard model.settings.minimalMode, !model.isMinimalCapsuleCollapsed else { return }
+        guard let window = findMainWindow(), window.isVisible, !window.isKeyWindow,
+              window.attachedSheet == nil else { return }
+        savedMinimalFrame = window.frame
+        model.setMinimalCapsuleCollapsed(true)
+        // Float while folded so the capsule stays reachable above other
+        // windows even without always-on-top; expanding restores the
+        // configured level via applyWindowBehavior.
+        window.level = .floating
+        // Same commit-then-resize ordering as the minimal transition.
+        Task { @MainActor in
+            guard let window = self.findMainWindow() else { return }
+            let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+            let target = NSRect(
+                x: visible.maxX - MinimalCapsule.width - MinimalCapsule.screenMargin,
+                y: visible.maxY - MinimalCapsule.height - MinimalCapsule.screenMargin,
+                width: MinimalCapsule.width,
+                height: MinimalCapsule.height
+            )
+            window.setFrame(target, display: true)
+            window.layoutIfNeeded()
+        }
+    }
+
+    /// Restores the frame the window had before folding. Deliberately the
+    /// saved frame, not the capsule's position: dragging the capsule should
+    /// not relocate the working window.
+    private func expandMinimalCapsule() {
+        guard model.isMinimalCapsuleCollapsed else { return }
+        model.setMinimalCapsuleCollapsed(false)
+        Task { @MainActor in
+            guard let window = self.findMainWindow() else { return }
+            if let saved = self.savedMinimalFrame {
+                window.setFrame(saved, display: true)
+                self.savedMinimalFrame = nil
+            }
+            window.layoutIfNeeded()
+            window.recalculateKeyViewLoop()
+            self.applyWindowBehavior()
+        }
     }
 
     private func configureModelCallbacks() {

@@ -12,10 +12,7 @@ struct TranslatorView: View {
     var body: some View {
         content
             .toolbar(minimalMode ? .hidden : .automatic, for: .windowToolbar)
-            .frame(
-                minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
-                minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
-            )
+            .frame(minWidth: contentMinWidth, minHeight: contentMinHeight)
             .overlay(alignment: .topLeading) {
                 appleTranslationBridge
                     .frame(width: 1, height: 1)
@@ -39,17 +36,49 @@ struct TranslatorView: View {
     /// window is not the key window.
     private var minimalMode: Bool { model.settings.minimalMode }
 
+    private var isCapsule: Bool { minimalMode && model.isMinimalCapsuleCollapsed }
+
     private var isGhosted: Bool {
         minimalMode && controlActiveState != .key
     }
 
+    private var contentMinWidth: CGFloat {
+        if isCapsule { return MinimalCapsule.width }
+        return minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth
+    }
+
+    private var contentMinHeight: CGFloat {
+        if isCapsule { return MinimalCapsule.height }
+        return minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
+    }
+
     @ViewBuilder
     private var content: some View {
-        if minimalMode {
+        if isCapsule {
+            capsuleContent
+        } else if minimalMode {
             minimalContent
         } else {
             standardContent
         }
+    }
+
+    /// The folded state after a minute out of focus: a small frosted capsule
+    /// in the screen corner. Clicking it makes the window key, which expands
+    /// it back to the minimal frame.
+    private var capsuleContent: some View {
+        HStack(spacing: LeafiyDesign.Spacing.xs) {
+            if let icon = NSImage.daisyAppIcon()?.leafiyMenuBarSized() {
+                Image(nsImage: icon)
+            }
+            Text(verbatim: "Daisy")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VisualEffectBackground().clipShape(Capsule()))
+        .overlay(Capsule().strokeBorder(.quaternary))
+        .ignoresSafeArea()
     }
 
     private var standardContent: some View {
