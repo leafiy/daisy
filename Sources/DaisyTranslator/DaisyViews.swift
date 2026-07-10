@@ -11,6 +11,7 @@ struct TranslatorView: View {
 
     var body: some View {
         content
+            .animation(.easeInOut(duration: MinimalCapsule.animationDuration), value: isCapsule)
             .toolbar(minimalMode ? .hidden : .automatic, for: .windowToolbar)
             .frame(minWidth: contentMinWidth, minHeight: contentMinHeight)
             .overlay(alignment: .topLeading) {
@@ -59,8 +60,10 @@ struct TranslatorView: View {
     private var content: some View {
         if isCapsule {
             capsuleContent
+                .transition(.opacity)
         } else if minimalMode {
             minimalContent
+                .transition(.scale(scale: 0.1, anchor: .topTrailing).combined(with: .opacity))
         } else {
             standardContent
         }
@@ -69,6 +72,11 @@ struct TranslatorView: View {
     /// The folded state after a minute out of focus: a small frosted capsule
     /// in the screen corner. Clicking it makes the window key, which expands
     /// it back to the minimal frame.
+    ///
+    /// The pill keeps its fixed size anchored top-trailing no matter how big
+    /// the window is, so the fold/unfold frame animation just glides it
+    /// between the window corner and the screen corner — never stretching
+    /// the glass material across the whole frame.
     private var capsuleContent: some View {
         HStack(spacing: LeafiyDesign.Spacing.xs) {
             if let icon = NSImage.daisyAppIcon()?.leafiyMenuBarSized() {
@@ -78,9 +86,10 @@ struct TranslatorView: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: MinimalCapsule.width, height: MinimalCapsule.height)
         .background(VisualEffectBackground().clipShape(Capsule()))
         .overlay(Capsule().strokeBorder(.quaternary))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .ignoresSafeArea()
     }
 
