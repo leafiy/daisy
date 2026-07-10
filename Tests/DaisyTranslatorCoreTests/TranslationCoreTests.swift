@@ -305,6 +305,37 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertTrue(decoded.minimalMode)
     }
 
+    func testEnablingMinimalModeTurnsAutoCopyOn() {
+        var previous = AppSettings.defaults(environment: [:])
+        previous.autoCopy = false
+
+        var next = previous
+        next.minimalMode = true
+
+        XCTAssertTrue(next.applyingTransitions(from: previous).autoCopy)
+    }
+
+    func testAutoCopyStaysUserControlledWhileMinimalModeIsAlreadyOn() {
+        var previous = AppSettings.defaults(environment: [:])
+        previous.minimalMode = true
+
+        var next = previous
+        next.autoCopy = false
+
+        XCTAssertFalse(next.applyingTransitions(from: previous).autoCopy)
+    }
+
+    func testDisablingMinimalModeLeavesAutoCopyUntouched() {
+        var previous = AppSettings.defaults(environment: [:])
+        previous.minimalMode = true
+        previous.autoCopy = false
+
+        var next = previous
+        next.minimalMode = false
+
+        XCTAssertFalse(next.applyingTransitions(from: previous).autoCopy)
+    }
+
     func testAppSettingsDefaultsHonorTargetLanguageEnvironmentOverride() {
         XCTAssertEqual(
             AppSettings.defaults(environment: ["TT_TARGET_LANGUAGE": "chinese"]).targetLanguage,

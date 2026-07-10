@@ -128,6 +128,18 @@ public struct AppSettings: Codable, Equatable {
         )
     }
 
+    /// Rules that fire on a settings transition rather than on a state.
+    /// Enabling minimal mode switches auto-copy on: the compact window hides
+    /// the result affordances, so completed translations must land on the
+    /// clipboard. The user can still turn auto-copy back off afterwards.
+    public func applyingTransitions(from previous: AppSettings) -> AppSettings {
+        var next = self
+        if minimalMode && !previous.minimalMode {
+            next.autoCopy = true
+        }
+        return next
+    }
+
     public static func defaultBaseURL(for provider: ModelProvider) -> String {
         switch provider {
         case .appleSystem:

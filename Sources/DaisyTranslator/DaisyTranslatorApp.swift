@@ -152,19 +152,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.collectionBehavior.remove([.canJoinAllSpaces, .fullScreenAuxiliary])
         }
         applyMinimalMode(to: window)
-        // A settings-driven change re-renders the SwiftUI window, which can
-        // restore the standard title bar a beat later; re-assert minimal
-        // chrome on the next runloop so it sticks.
+        // A settings-driven change re-renders the SwiftUI window a beat
+        // later: it can restore the standard title bar, and it swaps the
+        // content (and the window's min-size constraints). Re-assert minimal
+        // chrome on the next runloop, and only then apply the frame
+        // transition — resizing before the content swap commits leaves the
+        // hosting view laid out for the old mode, which broke hit-testing
+        // (the editor could not be clicked until a manual resize).
         Task { @MainActor in
             guard let window = self.findMainWindow() else { return }
             self.applyMinimalMode(to: window)
+            self.applyMinimalSizeTransition(to: window)
         }
     }
 
     /// Strips the window to just its content in minimal mode: no traffic
     /// lights, no title, a transparent full-size title bar, a translucent
-    /// (frosted) backing, and a compact frame. Standard mode restores the
-    /// full chrome, opacity, and previous size.
+    /// backing, and a background-draggable frame. Standard mode restores the
+    /// full chrome and opacity.
     private func applyMinimalMode(to window: NSWindow) {
         let minimal = model.settings.minimalMode
         if minimal {
@@ -179,12 +184,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.standardWindowButton(.closeButton)?.isHidden = minimal
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
         window.standardWindowButton(.zoomButton)?.isHidden = minimal
-        applyMinimalSize(to: window, minimal: minimal)
+        window.isMovableByWindowBackground = minimal
     }
 
     /// Shrinks to a compact frame when entering minimal mode and restores the
-    /// prior frame when leaving. Only fires on an actual transition.
-    private func applyMinimalSize(to window: NSWindow, minimal: Bool) {
+    /// prior frame when leaving. Only fires on an actual transition, and only
+    /// after SwiftUI has committed the matching content, so layout and the
+    /// key-view loop are rebuilt against the final frame.
+    private func applyMinimalSizeTransition(to window: NSWindow) {
+        let minimal = model.settings.minimalMode
         guard appliedMinimalLayout != minimal else { return }
         appliedMinimalLayout = minimal
         if minimal {
@@ -195,10 +203,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 width: MinimalWindow.width,
                 height: MinimalWindow.height
             )
-            window.setFrame(target, display: true, animate: true)
+            window.setFrame(target, display: true)
         } else if let saved = savedStandardFrame {
-            window.setFrame(saved, display: true, animate: true)
+            window.setFrame(saved, display: true)
             savedStandardFrame = nil
+        }
+        window.layoutIfNeeded()
+        window.recalculateKeyViewLoop()
+        if minimal {
+            window.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -232,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func saveSettings(_ nextSettings: AppSettings) {
         let previousSettings = model.settings
-        let normalizedSettings = normalized(nextSettings)
+        let normalizedSettings = normalized(nextSettings.applyingTransitions(from: previousSettings))
         model.replaceSettings(normalizedSettings)
         do {
             try settingsStore.save(normalizedSettings)

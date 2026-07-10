@@ -34,12 +34,12 @@ struct TranslatorView: View {
             }
     }
 
-    /// The unobtrusive floating state: only in minimal mode, only while
-    /// pinned on top, and only when this window is not the key window.
+    /// The unobtrusive floating state: only in minimal mode, whenever this
+    /// window is not the key window.
     private var minimalMode: Bool { model.settings.minimalMode }
 
     private var isGhosted: Bool {
-        minimalMode && model.settings.alwaysOnTop && controlActiveState != .key
+        minimalMode && controlActiveState != .key
     }
 
     @ViewBuilder
@@ -89,7 +89,8 @@ struct TranslatorView: View {
                     ),
                     onTextChange: {
                         model.sourceTextDidChange()
-                    }
+                    },
+                    focusOnAppear: true
                 )
                 .accessibilityLabel(L("Source input"))
             }
@@ -101,14 +102,13 @@ struct TranslatorView: View {
         .opacity(isGhosted ? 0.7 : 1)
         .blur(radius: isGhosted ? 2 : 0)
         .padding(LeafiyDesign.Spacing.m)
-        .padding(.top, MinimalLayout.titleBarInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(minimalBackground)
         .animation(.easeInOut(duration: 0.2), value: isGhosted)
     }
 
     /// Solid window backing while focused; a frosted, behind-window blur once
-    /// the pinned window drops out of focus.
+    /// the window drops out of focus.
     @ViewBuilder
     private var minimalBackground: some View {
         if isGhosted {
@@ -130,7 +130,6 @@ struct TranslatorView: View {
     private enum MinimalLayout {
         static let minWidth: CGFloat = 300
         static let minHeight: CGFloat = 220
-        static let titleBarInset: CGFloat = 28
     }
 
     private var mainContent: some View {
@@ -205,6 +204,7 @@ struct TranslatorView: View {
 private struct SourceTextEditor: NSViewRepresentable {
     @Binding var text: String
     let onTextChange: () -> Void
+    var focusOnAppear = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onTextChange: onTextChange)
@@ -243,6 +243,15 @@ private struct SourceTextEditor: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        if focusOnAppear {
+            // The minimal-mode editor is rebuilt on every mode switch; claim
+            // key focus once the view lands in its window so typing works
+            // without an extra click.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+            }
+        }
         return scrollView
     }
 
