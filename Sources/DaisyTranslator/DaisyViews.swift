@@ -42,13 +42,16 @@ struct TranslatorView: View {
         minimalMode && controlActiveState != .key
     }
 
+    /// Folded state declares no minimum: the AppKit frame transition owns
+    /// the capsule size, and any SwiftUI minimum would be inflated by the
+    /// title-bar safe-area inset and push the 40pt window into a tall pill.
     private var contentMinWidth: CGFloat {
-        if isCapsule { return MinimalCapsule.width }
+        if isCapsule { return 0 }
         return minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth
     }
 
     private var contentMinHeight: CGFloat {
-        if isCapsule { return MinimalCapsule.height }
+        if isCapsule { return 0 }
         return minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
     }
 

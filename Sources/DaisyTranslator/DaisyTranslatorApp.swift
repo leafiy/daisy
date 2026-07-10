@@ -56,6 +56,7 @@ enum MinimalCapsule {
     static let height: CGFloat = 40
     static let screenMargin: CGFloat = 16
     static let collapseDelayNanoseconds: UInt64 = 60 * 1_000_000_000
+    static let animationDuration: TimeInterval = 0.22
 }
 
 @MainActor
@@ -209,6 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
         window.standardWindowButton(.zoomButton)?.isHidden = minimal
         window.isMovableByWindowBackground = minimal
+        // Keep the frame shadow (and its rim light) suppressed while folded
+        // even when a settings change re-asserts the chrome.
+        window.hasShadow = !(minimal && model.isMinimalCapsuleCollapsed)
     }
 
     /// Shrinks to a compact frame when entering minimal mode and restores the
@@ -299,7 +303,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // windows even without always-on-top; expanding restores the
         // configured level via applyWindowBehavior.
         window.level = .floating
-        // Same commit-then-resize ordering as the minimal transition.
+        // Same commit-then-resize ordering as the minimal transition: the
+        // capsule content lands first, then the frame shrinks around it, so
+        // the pill scales down smoothly.
         Task { @MainActor in
             guard let window = self.findMainWindow() else { return }
             let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
@@ -309,27 +315,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 width: MinimalCapsule.width,
                 height: MinimalCapsule.height
             )
-            window.setFrame(target, display: true)
-            window.layoutIfNeeded()
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = MinimalCapsule.animationDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                window.animator().setFrame(target, display: true)
+            }, completionHandler: {
+                Task { @MainActor [weak self] in
+                    // Refocusing mid-animation retargets it and expands;
+                    // leave the shadow alone in that case.
+                    guard let self, self.model.isMinimalCapsuleCollapsed else { return }
+                    // The window shadow and its rim light outline the
+                    // rectangular frame, not the pill; drop them while folded.
+                    self.findMainWindow()?.hasShadow = false
+                }
+            })
         }
     }
 
     /// Restores the frame the window had before folding. Deliberately the
     /// saved frame, not the capsule's position: dragging the capsule should
-    /// not relocate the working window.
+    /// not relocate the working window. The frame grows first while the
+    /// capsule is still showing — a smooth stretch — and only then swaps the
+    /// minimal content in, so its larger minimum never fights the animation.
     private func expandMinimalCapsule() {
         guard model.isMinimalCapsuleCollapsed else { return }
-        model.setMinimalCapsuleCollapsed(false)
-        Task { @MainActor in
-            guard let window = self.findMainWindow() else { return }
-            if let saved = self.savedMinimalFrame {
-                window.setFrame(saved, display: true)
-                self.savedMinimalFrame = nil
-            }
-            window.layoutIfNeeded()
-            window.recalculateKeyViewLoop()
-            self.applyWindowBehavior()
+        guard let window = findMainWindow() else {
+            model.setMinimalCapsuleCollapsed(false)
+            savedMinimalFrame = nil
+            return
         }
+        window.hasShadow = true
+        let target = savedMinimalFrame ?? window.frame
+        savedMinimalFrame = nil
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = MinimalCapsule.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(target, display: true)
+        }, completionHandler: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.model.setMinimalCapsuleCollapsed(false)
+                guard let window = self.findMainWindow() else { return }
+                window.layoutIfNeeded()
+                window.recalculateKeyViewLoop()
+                self.applyWindowBehavior()
+            }
+        })
     }
 
     private func configureModelCallbacks() {
