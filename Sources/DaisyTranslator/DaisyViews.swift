@@ -11,6 +11,7 @@ struct TranslatorView: View {
 
     var body: some View {
         content
+            .toolbar(minimalMode ? .hidden : .automatic, for: .windowToolbar)
             .frame(
                 minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
                 minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
@@ -92,19 +93,38 @@ struct TranslatorView: View {
                     },
                     focusOnAppear: true
                 )
+                .frame(minHeight: MinimalLayout.paneMinHeight, maxHeight: .infinity)
                 .accessibilityLabel(L("Source input"))
             }
             LeafiyCard {
-                resultPane
+                minimalResultPane
+                    .frame(minHeight: MinimalLayout.paneMinHeight, maxHeight: .infinity)
                     .accessibilityLabel(L("Translation output"))
             }
         }
         .opacity(isGhosted ? 0.7 : 1)
         .blur(radius: isGhosted ? 2 : 0)
         .padding(LeafiyDesign.Spacing.m)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(minimalBackground)
+        // No chrome remains in minimal mode, so claim the title-bar strip
+        // instead of leaving it as a blank band above the content.
+        .ignoresSafeArea(.container, edges: .top)
         .animation(.easeInOut(duration: 0.2), value: isGhosted)
+    }
+
+    /// Compact stand-in for the standard empty state: the full placeholder
+    /// (icon, title, generous padding) overflows the minimal panes.
+    @ViewBuilder
+    private var minimalResultPane: some View {
+        if model.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(L("No translation yet"))
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            resultPane
+        }
     }
 
     /// Solid window backing while focused; a frosted, behind-window blur once
@@ -129,7 +149,8 @@ struct TranslatorView: View {
 
     private enum MinimalLayout {
         static let minWidth: CGFloat = 300
-        static let minHeight: CGFloat = 220
+        static let minHeight: CGFloat = 280
+        static let paneMinHeight: CGFloat = 64
     }
 
     private var mainContent: some View {
@@ -243,6 +264,24 @@ private struct SourceTextEditor: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        // With minSize zero, an empty text view is one line tall and clicks
+        // in the rest of the card land on the clip view — the editor looks
+        // and feels a few pixels high. Track the clip view's height so the
+        // text view always fills the visible area and any click focuses it.
+        let clipView = scrollView.contentView
+        clipView.postsFrameChangedNotifications = true
+        context.coordinator.clipViewObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: clipView,
+            queue: .main
+        ) { [weak textView, weak clipView] _ in
+            guard let textView, let clipView else { return }
+            let height = clipView.bounds.height
+            textView.minSize = NSSize(width: 0, height: height)
+            if textView.frame.height < height {
+                textView.setFrameSize(NSSize(width: textView.frame.width, height: height))
+            }
+        }
         if focusOnAppear {
             // The minimal-mode editor is rebuilt on every mode switch; claim
             // key focus once the view lands in its window so typing works
@@ -287,10 +326,17 @@ private struct SourceTextEditor: NSViewRepresentable {
         var onTextChange: () -> Void
         var isApplyingProgrammaticChange = false
         weak var textView: NSTextView?
+        var clipViewObserver: NSObjectProtocol?
 
         init(text: Binding<String>, onTextChange: @escaping () -> Void) {
             self.text = text
             self.onTextChange = onTextChange
+        }
+
+        deinit {
+            if let clipViewObserver {
+                NotificationCenter.default.removeObserver(clipViewObserver)
+            }
         }
 
         func textDidChange(_ notification: Notification) {

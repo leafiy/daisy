@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.styleMask.remove(.fullSizeContentView)
         }
         window.titlebarAppearsTransparent = minimal
+        window.titlebarSeparatorStyle = minimal ? .none : .automatic
         window.titleVisibility = minimal ? .hidden : .visible
         window.isOpaque = !minimal
         window.backgroundColor = minimal ? .clear : .windowBackgroundColor
