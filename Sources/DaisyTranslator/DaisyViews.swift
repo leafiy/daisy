@@ -7,13 +7,14 @@ import LeafiyUICore
 struct TranslatorView: View {
     @ObservedObject var model: DaisyModel
     let appleTranslationBridge: AnyView
-    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         content
-            .animation(.easeInOut(duration: MinimalCapsule.animationDuration), value: isCapsule)
             .toolbar(minimalMode ? .hidden : .automatic, for: .windowToolbar)
-            .frame(minWidth: contentMinWidth, minHeight: contentMinHeight)
+            .frame(
+                minWidth: minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth,
+                minHeight: minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
+            )
             .overlay(alignment: .topLeading) {
                 appleTranslationBridge
                     .frame(width: 1, height: 1)
@@ -33,64 +34,21 @@ struct TranslatorView: View {
             }
     }
 
-    /// The unobtrusive floating state: only in minimal mode, whenever this
-    /// window is not the key window.
     private var minimalMode: Bool { model.settings.minimalMode }
 
-    private var isCapsule: Bool { minimalMode && model.isMinimalCapsuleCollapsed }
-
+    /// The unobtrusive idle state: the delegate flips this after a minute
+    /// without key focus in minimal mode (when the setting allows it).
     private var isGhosted: Bool {
-        minimalMode && controlActiveState != .key
-    }
-
-    /// Folded state declares no minimum: the AppKit frame transition owns
-    /// the capsule size, and any SwiftUI minimum would be inflated by the
-    /// title-bar safe-area inset and push the 40pt window into a tall pill.
-    private var contentMinWidth: CGFloat {
-        if isCapsule { return 0 }
-        return minimalMode ? MinimalLayout.minWidth : LeafiyDesign.Size.mainWindowMinWidth
-    }
-
-    private var contentMinHeight: CGFloat {
-        if isCapsule { return 0 }
-        return minimalMode ? MinimalLayout.minHeight : LeafiyDesign.Size.mainWindowMinHeight
+        minimalMode && model.isMinimalIdleGhosted
     }
 
     @ViewBuilder
     private var content: some View {
-        if isCapsule {
-            capsuleContent
-                .transition(.opacity)
-        } else if minimalMode {
+        if minimalMode {
             minimalContent
-                .transition(.scale(scale: 0.1, anchor: .topTrailing).combined(with: .opacity))
         } else {
             standardContent
         }
-    }
-
-    /// The folded state after a minute out of focus: a small frosted capsule
-    /// in the screen corner. Clicking it makes the window key, which expands
-    /// it back to the minimal frame.
-    ///
-    /// The pill keeps its fixed size anchored top-trailing no matter how big
-    /// the window is, so the fold/unfold frame animation just glides it
-    /// between the window corner and the screen corner — never stretching
-    /// the glass material across the whole frame.
-    private var capsuleContent: some View {
-        HStack(spacing: LeafiyDesign.Spacing.xs) {
-            if let icon = NSImage.daisyAppIcon()?.leafiyMenuBarSized() {
-                Image(nsImage: icon)
-            }
-            Text(verbatim: "Daisy")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(width: MinimalCapsule.width, height: MinimalCapsule.height)
-        .background(VisualEffectBackground().clipShape(Capsule()))
-        .overlay(Capsule().strokeBorder(.quaternary))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .ignoresSafeArea()
     }
 
     private var standardContent: some View {
@@ -168,8 +126,8 @@ struct TranslatorView: View {
         }
     }
 
-    /// Solid window backing while focused; a frosted, behind-window blur once
-    /// the window drops out of focus.
+    /// Solid window backing normally; a frosted, behind-window blur once the
+    /// idle ghost kicks in.
     @ViewBuilder
     private var minimalBackground: some View {
         if isGhosted {
@@ -413,7 +371,7 @@ struct DaisySettingsView: View {
                     providerHint
                 }
             }
-            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 560) {
+            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 620) {
                 Section(L("Quick Translate")) {
                     Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
                     Text(L("Translate selected text and show the translation in a popup toolbar"))
@@ -445,6 +403,12 @@ struct DaisySettingsView: View {
                         .foregroundStyle(.secondary)
                     Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
                     Text(L("Paste translations into the frontmost app when complete"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section(L("Minimal Mode")) {
+                    Toggle(L("Idle Transparency"), isOn: settingsBinding(\.minimalIdleGhostEnabled))
+                    Text(L("Fade the minimal window to frosted glass after a minute without focus"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

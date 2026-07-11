@@ -41,6 +41,7 @@
 "DeepSeek API Key" = "DeepSeek API Key";
 "English" = "英语";
 "Enter source text to start translating" = "输入原文后开始翻译";
+"Fade the minimal window to frosted glass after a minute without focus" = "极简窗口失去焦点一分钟后淡出为毛玻璃半透明";
 "Failed to save. Check settings file permissions." = "存储失败，请检查设置文件权限";
 "Failed to send keystroke. Check Accessibility permission." = "发送按键失败，请检查辅助功能权限";
 "Failed to write to clipboard. Try again." = "写入剪贴板失败，请重试";
@@ -50,6 +51,7 @@
 "Google Cloud Translation" = "Google Cloud Translation";
 "Google Translate" = "Google 翻译";
 "Hide Window" = "隐藏窗口";
+"Idle Transparency" = "空闲透明";
 "Invalid shortcut" = "快捷键无效";
 "Later" = "稍后";
 "Minimal Mode" = "极简模式";

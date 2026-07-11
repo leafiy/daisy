@@ -49,17 +49,6 @@ struct DaisyApp: App {
     }
 }
 
-/// Geometry of the folded minimal window; shared between the AppKit frame
-/// transition and the SwiftUI capsule content's minimum frame.
-enum MinimalCapsule {
-    static let width: CGFloat = 128
-    static let height: CGFloat = 40
-    static let screenMargin: CGFloat = 16
-    static let collapseDelayNanoseconds: UInt64 = 60 * 1_000_000_000
-    static let animationDuration: TimeInterval = 0.22
-    static var animationNanoseconds: UInt64 { UInt64(animationDuration * 1_000_000_000) }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = DaisyModel()
@@ -78,8 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var translationBridgeHostWindow: NSWindow?
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
-    private var savedMinimalFrame: NSRect?
-    private var capsuleCollapseTask: Task<Void, Never>?
+    private var idleGhostTask: Task<Void, Never>?
     private var windowKeyObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -105,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
-        capsuleCollapseTask?.cancel()
+        idleGhostTask?.cancel()
         hotKeyCenter.unregister()
     }
 
@@ -146,10 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleMainWindow(openWindow: OpenWindowAction) {
         if let window = findMainWindow(), window.isVisible {
-            // Never hide in the folded state: the next show should present
-            // the regular minimal window, not a stray corner capsule.
-            cancelScheduledCapsuleCollapse()
-            expandMinimalCapsule()
+            cancelScheduledIdleGhost()
+            model.setMinimalIdleGhosted(false)
             window.orderOut(nil)
         } else {
             openWindow(id: "main")
@@ -164,10 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applyWindowBehavior() {
         guard let window = findMainWindow() else { return }
-        if !model.settings.minimalMode {
-            cancelScheduledCapsuleCollapse()
-            model.setMinimalCapsuleCollapsed(false)
-            savedMinimalFrame = nil
+        if !model.settings.minimalMode || !model.settings.minimalIdleGhostEnabled {
+            cancelScheduledIdleGhost()
+            model.setMinimalIdleGhosted(false)
         }
         if model.settings.alwaysOnTop {
             window.level = .floating
@@ -211,9 +196,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
         window.standardWindowButton(.zoomButton)?.isHidden = minimal
         window.isMovableByWindowBackground = minimal
-        // Keep the frame shadow (and its rim light) suppressed while folded
-        // even when a settings change re-asserts the chrome.
-        window.hasShadow = !(minimal && model.isMinimalCapsuleCollapsed)
     }
 
     /// Shrinks to a compact frame when entering minimal mode and restores the
@@ -249,9 +231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let height: CGFloat = 300
     }
 
-    /// A minute out of key focus folds the minimal window into a small
-    /// capsule in the screen's top-right corner; the click that makes it key
-    /// again (or regaining focus any other way) restores the saved frame.
+    /// After a minute without key focus, the minimal window fades to the
+    /// frosted idle ghost (when the setting allows it); regaining key focus
+    /// clears the ghost.
     private func installWindowKeyObservers() {
         let center = NotificationCenter.default
         windowKeyObservers.append(center.addObserver(
@@ -262,7 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = notification.object as? NSWindow
             Task { @MainActor in
                 guard let self, let window, window == self.findMainWindow() else { return }
-                self.scheduleCapsuleCollapse()
+                self.scheduleIdleGhost()
             }
         })
         windowKeyObservers.append(center.addObserver(
@@ -273,96 +255,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = notification.object as? NSWindow
             Task { @MainActor in
                 guard let self, let window, window == self.findMainWindow() else { return }
-                self.cancelScheduledCapsuleCollapse()
-                self.expandMinimalCapsule()
+                self.cancelScheduledIdleGhost()
+                self.model.setMinimalIdleGhosted(false)
             }
         })
     }
 
-    private func scheduleCapsuleCollapse() {
-        cancelScheduledCapsuleCollapse()
-        guard model.settings.minimalMode, !model.isMinimalCapsuleCollapsed else { return }
-        capsuleCollapseTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: MinimalCapsule.collapseDelayNanoseconds)
+    private enum IdleGhost {
+        static let delayNanoseconds: UInt64 = 60 * 1_000_000_000
+    }
+
+    private func scheduleIdleGhost() {
+        cancelScheduledIdleGhost()
+        guard model.settings.minimalMode,
+              model.settings.minimalIdleGhostEnabled,
+              !model.isMinimalIdleGhosted else { return }
+        idleGhostTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: IdleGhost.delayNanoseconds)
             guard !Task.isCancelled else { return }
-            self?.collapseMinimalCapsule()
+            self?.applyIdleGhost()
         }
     }
 
-    private func cancelScheduledCapsuleCollapse() {
-        capsuleCollapseTask?.cancel()
-        capsuleCollapseTask = nil
+    private func cancelScheduledIdleGhost() {
+        idleGhostTask?.cancel()
+        idleGhostTask = nil
     }
 
-    private func collapseMinimalCapsule() {
-        guard model.settings.minimalMode, !model.isMinimalCapsuleCollapsed else { return }
-        guard let window = findMainWindow(), window.isVisible, !window.isKeyWindow,
-              window.attachedSheet == nil else { return }
-        savedMinimalFrame = window.frame
-        // SwiftUI fades the fixed-size pill in at the window's top-right
-        // corner while the minimal content zooms out toward it.
-        model.setMinimalCapsuleCollapsed(true)
-        // Float while folded so the capsule stays reachable above other
-        // windows even without always-on-top; expanding restores the
-        // configured level via applyWindowBehavior.
-        window.level = .floating
-        // Shadow and rim light trace the rectangular frame, not the pill;
-        // keep them off for the whole folded lifetime, animations included.
-        window.hasShadow = false
-        // After the content swap commits, glide the transparent frame to the
-        // screen corner — the pill rides the window's top-right corner, so
-        // the glass never stretches and each tick is cheap to lay out.
-        Task { @MainActor in
-            guard let window = self.findMainWindow(),
-                  self.model.isMinimalCapsuleCollapsed else { return }
-            let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
-            let target = NSRect(
-                x: visible.maxX - MinimalCapsule.width - MinimalCapsule.screenMargin,
-                y: visible.maxY - MinimalCapsule.height - MinimalCapsule.screenMargin,
-                width: MinimalCapsule.width,
-                height: MinimalCapsule.height
-            )
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = MinimalCapsule.animationDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                window.animator().setFrame(target, display: true)
-            }
-        }
-    }
-
-    /// Restores the frame the window had before folding. Deliberately the
-    /// saved frame, not the capsule's position: dragging the capsule should
-    /// not relocate the working window.
-    ///
-    /// Choreography: glide the frame back first while only the small pill is
-    /// showing (cheap per-tick layout, no stretched glass), then let SwiftUI
-    /// zoom the minimal content in, and only once that settles restore the
-    /// window shadow — otherwise the rim light outlines the zooming content.
-    private func expandMinimalCapsule() {
-        guard model.isMinimalCapsuleCollapsed else { return }
-        guard let window = findMainWindow() else {
-            model.setMinimalCapsuleCollapsed(false)
-            savedMinimalFrame = nil
-            return
-        }
-        let target = savedMinimalFrame ?? window.frame
-        savedMinimalFrame = nil
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = MinimalCapsule.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            window.animator().setFrame(target, display: true)
-        }, completionHandler: {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.model.setMinimalCapsuleCollapsed(false)
-                guard let window = self.findMainWindow() else { return }
-                window.layoutIfNeeded()
-                window.recalculateKeyViewLoop()
-                try? await Task.sleep(nanoseconds: MinimalCapsule.animationNanoseconds)
-                guard !self.model.isMinimalCapsuleCollapsed else { return }
-                self.applyWindowBehavior()
-            }
-        })
+    private func applyIdleGhost() {
+        guard model.settings.minimalMode,
+              model.settings.minimalIdleGhostEnabled,
+              let window = findMainWindow(),
+              window.isVisible,
+              !window.isKeyWindow else { return }
+        model.setMinimalIdleGhosted(true)
     }
 
     private func configureModelCallbacks() {

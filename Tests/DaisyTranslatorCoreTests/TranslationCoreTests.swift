@@ -305,6 +305,17 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertTrue(decoded.minimalMode)
     }
 
+    func testAppSettingsDecodingDefaultsMissingMinimalIdleGhostEnabledToTrueAndReadsExplicitFalse() throws {
+        let missing = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertTrue(missing.minimalIdleGhostEnabled)
+
+        let disabled = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"minimalIdleGhostEnabled":false}"#.utf8)
+        )
+        XCTAssertFalse(disabled.minimalIdleGhostEnabled)
+    }
+
     func testEnablingMinimalModeTurnsAutoCopyOn() {
         var previous = AppSettings.defaults(environment: [:])
         previous.autoCopy = false
