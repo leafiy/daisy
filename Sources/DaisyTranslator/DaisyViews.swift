@@ -693,17 +693,39 @@ struct DaisyMenuBarMenu: View {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
+    private static let icon = NSImage.daisyAppIcon()?.leafiyMenuBarSized()
+
     var body: some View {
-        HStack(spacing: LeafiyDesign.Spacing.xs) {
-            if let image = NSImage.daisyAppIcon()?.leafiyMenuBarSized() {
+        ZStack {
+            if let image = Self.icon {
                 Image(nsImage: image)
-                    .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
+                    .opacity(model.isTranslating ? 0.35 : 1)
             }
-            if let message = model.menuBarStatusText, !message.isEmpty {
-                Text(message)
+            if model.isTranslating {
+                MenuBarSpinner()
             }
         }
+        .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
         .accessibilityLabel(Text(verbatim: "Daisy"))
+    }
+}
+
+/// Rotating arc overlaid on the menu-bar icon while a translation is in flight.
+/// Driven by `TimelineView` because `MenuBarExtra` labels are snapshotted per
+/// render pass, so implicit animations never advance there.
+private struct MenuBarSpinner: View {
+    private static let revolutionSeconds: Double = 1.1
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let progress = context.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: Self.revolutionSeconds) / Self.revolutionSeconds
+            Circle()
+                .trim(from: 0, to: 0.7)
+                .stroke(.primary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                .rotationEffect(.degrees(progress * 360))
+                .padding(1)
+        }
     }
 }
 

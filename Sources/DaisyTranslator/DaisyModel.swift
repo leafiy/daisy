@@ -27,11 +27,8 @@ final class DaisyModel: ObservableObject {
     private let minimumDebounceMilliseconds = 150
     private let maximumDebounceMilliseconds = 1_200
 
-    var menuBarStatusText: String? {
-        if activeTranslationCount > 0 {
-            return L("Translating…")
-        }
-        return transientStatusMessage
+    var isTranslating: Bool {
+        activeTranslationCount > 0
     }
 
     func replaceSettings(_ settings: AppSettings) {
