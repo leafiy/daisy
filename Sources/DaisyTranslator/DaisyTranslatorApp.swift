@@ -455,6 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
+                self.model.flashMenuBarDot(.success)
                 let autoCopy = settingsSnapshot.quickTranslateAutoCopy
                 if autoCopy, !self.pasteboardService.writeText(translated) {
                     self.showStatusMessage(L("Translation completed, but copy failed. Try again."), kind: .failure)

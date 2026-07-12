@@ -701,60 +701,60 @@ struct DaisyMenuBarLabel: View {
         // frames are dropped. Compose every state into a single NSImage instead.
         Image(nsImage: MenuBarIconRenderer.render(
             base: Self.baseIcon,
-            spinnerAngle: model.isTranslating ? model.spinnerAngle : nil,
-            badge: model.isTranslating ? nil : model.transientStatus?.kind
+            busyPulsePhase: model.isTranslating ? model.busyPulsePhase : nil,
+            dot: model.isTranslating ? nil : model.menuBarDot
         ))
         .accessibilityLabel(Text(verbatim: "Daisy"))
     }
 }
 
-/// Draws the fixed-size menu-bar icon: base app icon, optionally dimmed under a
-/// rotating spinner arc while translating, or with a corner outcome badge.
+/// Draws the fixed-size menu-bar icon with a small status dot in the
+/// bottom-right corner: a pulsing accent dot while translating, a green dot
+/// after success, a red dot after failure. The icon itself never changes.
 private enum MenuBarIconRenderer {
     static func render(
         base: NSImage?,
-        spinnerAngle: Double?,
-        badge: DaisyModel.TransientStatus.Kind?
+        busyPulsePhase: Double?,
+        dot: DaisyModel.MenuBarDot?
     ) -> NSImage {
         let side = LeafiyDesign.Size.menuBarIcon
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             if let base {
-                base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: spinnerAngle == nil ? 1 : 0.35)
+                base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
             } else if let fallback = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "Daisy") {
                 fallback.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
             }
 
-            if let spinnerAngle {
-                let inset = rect.insetBy(dx: 1.3, dy: 1.3)
-                let start = CGFloat(90 - spinnerAngle)
-                let path = NSBezierPath()
-                path.appendArc(
-                    withCenter: NSPoint(x: inset.midX, y: inset.midY),
-                    radius: inset.width / 2,
-                    startAngle: start,
-                    endAngle: start - 252,
-                    clockwise: true
+            if let busyPulsePhase {
+                // Breathing accent dot: diameter oscillates 4…6.5pt.
+                let diameter = 5.25 + 1.25 * sin(busyPulsePhase * .pi / 180)
+                drawStatusDot(in: rect, diameter: diameter, color: .controlAccentColor)
+            } else if let dot {
+                drawStatusDot(
+                    in: rect,
+                    diameter: dot.isPopped ? 7.5 : 6,
+                    color: dot.kind == .success ? .systemGreen : .systemRed
                 )
-                path.lineWidth = 1.6
-                path.lineCapStyle = .round
-                NSColor.labelColor.setStroke()
-                path.stroke()
-            }
-
-            if let badge {
-                let badgeSide: CGFloat = 9
-                let badgeRect = NSRect(x: rect.maxX - badgeSide, y: rect.minY, width: badgeSide, height: badgeSide)
-                let (symbolName, color): (String, NSColor) = badge == .success
-                    ? ("checkmark.circle.fill", .systemGreen)
-                    : ("exclamationmark.circle.fill", .systemRed)
-                let configuration = NSImage.SymbolConfiguration(paletteColors: [.white, color])
-                if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(configuration) {
-                    symbol.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
-                }
             }
             return true
         }
+    }
+
+    private static func drawStatusDot(in rect: NSRect, diameter: CGFloat, color: NSColor) {
+        let center = NSPoint(x: rect.maxX - 4, y: rect.minY + 4)
+        let dotRect = NSRect(
+            x: center.x - diameter / 2,
+            y: center.y - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        let path = NSBezierPath(ovalIn: dotRect)
+        color.setFill()
+        path.fill()
+        // Hairline ring separates the dot from the icon artwork underneath.
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        path.lineWidth = 1
+        path.stroke()
     }
 }
 
