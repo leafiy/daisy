@@ -21,7 +21,7 @@ struct TranslatorView: View {
                     .opacity(0)
                     .allowsHitTesting(false)
             }
-            .leafiyToast(model.transientStatusMessage)
+            .leafiyToast(model.transientStatus?.message)
             .sheet(isPresented: Binding(
                 get: { model.isOnboardingPresented },
                 set: { presented in
@@ -459,7 +459,7 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
             set: { spec in
                 let shortcut = spec.canonicalDescription
                 guard HotKeyCenter.isShortcutSupported(shortcut) else {
-                    model.showTransientStatus(L("Invalid shortcut"))
+                    model.showTransientStatus(L("Invalid shortcut"), kind: .failure)
                     return
                 }
                 model.updateSettings { $0.quickTranslateShortcut = shortcut }
@@ -700,9 +700,17 @@ struct DaisyMenuBarLabel: View {
             if let image = Self.icon {
                 Image(nsImage: image)
                     .opacity(model.isTranslating ? 0.35 : 1)
+            } else {
+                Image(systemName: "character.bubble")
             }
             if model.isTranslating {
-                MenuBarSpinner()
+                Circle()
+                    .trim(from: 0, to: 0.7)
+                    .stroke(.primary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                    .rotationEffect(.degrees(model.spinnerAngle))
+                    .padding(1)
+            } else if let status = model.transientStatus {
+                MenuBarStatusBadge(kind: status.kind)
             }
         }
         .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
@@ -710,22 +718,17 @@ struct DaisyMenuBarLabel: View {
     }
 }
 
-/// Rotating arc overlaid on the menu-bar icon while a translation is in flight.
-/// Driven by `TimelineView` because `MenuBarExtra` labels are snapshotted per
-/// render pass, so implicit animations never advance there.
-private struct MenuBarSpinner: View {
-    private static let revolutionSeconds: Double = 1.1
+/// Corner badge overlaid on the menu-bar icon for a transient outcome.
+private struct MenuBarStatusBadge: View {
+    let kind: DaisyModel.TransientStatus.Kind
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let progress = context.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: Self.revolutionSeconds) / Self.revolutionSeconds
-            Circle()
-                .trim(from: 0, to: 0.7)
-                .stroke(.primary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                .rotationEffect(.degrees(progress * 360))
-                .padding(1)
-        }
+        Image(systemName: kind == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+            .resizable()
+            .foregroundStyle(kind == .success ? Color.green : Color.red)
+            .background(Circle().fill(.background))
+            .frame(width: 9, height: 9)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
     }
 }
 

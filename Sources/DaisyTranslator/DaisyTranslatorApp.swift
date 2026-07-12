@@ -418,7 +418,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.model.updateSettings { $0.quickTranslateAutoCopy = enabled }
             guard enabled else { return }
-            self.showStatusMessage(self.pasteboardService.writeText(text) ? L("Copied") : L("Copy failed. Try again."))
+            if self.pasteboardService.writeText(text) {
+                self.showStatusMessage(L("Copied"), kind: .success)
+            } else {
+                self.showStatusMessage(L("Copy failed. Try again."), kind: .failure)
+            }
         }
     }
 
@@ -445,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer { self.model.endTranslation() }
             do {
                 guard let text = try await makeSourceText() else {
-                    self.showStatusMessage(L("No text selected"))
+                    self.showStatusMessage(L("No text selected"), kind: .failure)
                     return
                 }
                 guard !Task.isCancelled else { return }
@@ -453,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled else { return }
                 let autoCopy = settingsSnapshot.quickTranslateAutoCopy
                 if autoCopy, !self.pasteboardService.writeText(translated) {
-                    self.showStatusMessage(L("Translation completed, but copy failed. Try again."))
+                    self.showStatusMessage(L("Translation completed, but copy failed. Try again."), kind: .failure)
                 }
                 self.quickTranslatePopup.show(text: translated, autoCopyEnabled: autoCopy, above: anchor)
             } catch {
@@ -461,7 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let message = String(
                     TranslationService.userFacingErrorMessage(error, provider: settingsSnapshot.provider).prefix(40)
                 )
-                self.showStatusMessage(String(format: L("Translation failed: %@"), message))
+                self.showStatusMessage(String(format: L("Translation failed: %@"), message), kind: .failure)
             }
         }
     }
@@ -504,8 +508,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AXIsProcessTrusted()
     }
 
-    private func showStatusMessage(_ message: String) {
-        model.showTransientStatus(message)
+    private func showStatusMessage(_ message: String, kind: DaisyModel.TransientStatus.Kind) {
+        model.showTransientStatus(message, kind: kind)
     }
 
     private func findMainWindow() -> NSWindow? {

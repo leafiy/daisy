@@ -8,11 +8,15 @@ final class DaisyModel: ObservableObject {
     @Published var sourceText = ""
     @Published var translatedText = ""
     @Published var statusText = L("Ready")
-    @Published var transientStatusMessage: String?
+    @Published private(set) var transientStatus: TransientStatus?
     @Published var isOnboardingPresented = false
     @Published private(set) var activeTranslationCount = 0
     /// Whether the minimal window has faded to the frosted idle ghost.
     @Published private(set) var isMinimalIdleGhosted = false
+    /// Rotation of the menu-bar spinner, ticked by a task while translating.
+    /// `MenuBarExtra` labels only re-render on published changes, so the
+    /// animation must be driven from the model rather than a `TimelineView`.
+    @Published private(set) var spinnerAngle: Double = 0
 
     var onSettingsChanged: ((AppSettings) -> Void)?
     var translateText: ((String, AppSettings) async throws -> String)?
@@ -24,8 +28,19 @@ final class DaisyModel: ObservableObject {
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
     private var transientStatusClearTask: Task<Void, Never>?
+    private var spinnerTask: Task<Void, Never>?
     private let minimumDebounceMilliseconds = 150
     private let maximumDebounceMilliseconds = 1_200
+
+    struct TransientStatus: Equatable {
+        enum Kind {
+            case success
+            case failure
+        }
+
+        let message: String
+        let kind: Kind
+    }
 
     var isTranslating: Bool {
         activeTranslationCount > 0
@@ -151,7 +166,10 @@ final class DaisyModel: ObservableObject {
             var copySucceeded = false
             if requestSettings.autoCopy {
                 copySucceeded = writeClipboardText?(translated) ?? false
-                showTransientStatus(copySucceeded ? L("Copied translation") : L("Copy failed. Copy manually."))
+                showTransientStatus(
+                    copySucceeded ? L("Copied translation") : L("Copy failed. Copy manually."),
+                    kind: copySucceeded ? .success : .failure
+                )
             }
             if requestSettings.autoPaste {
                 guard ensurePastePermission?() ?? false else {
@@ -159,7 +177,7 @@ final class DaisyModel: ObservableObject {
                     return
                 }
                 try await pasteIntoFrontmostApp?(translated)
-                showTransientStatus(L("Auto pasted"))
+                showTransientStatus(L("Auto pasted"), kind: .success)
             }
             if requestSettings.autoCopy {
                 statusText = copySucceeded ? L("Completed and copied") : L("Completed, copy failed")
@@ -182,7 +200,7 @@ final class DaisyModel: ObservableObject {
                 guard self.ensurePastePermission?() ?? false else { return }
                 try await self.pasteIntoFrontmostApp?(result)
                 self.statusText = L("Pasted")
-                self.showTransientStatus(L("Pasted"))
+                self.showTransientStatus(L("Pasted"), kind: .success)
             } catch {
                 self.statusText = String(format: L("Paste failed: %@"), TranslationService.userFacingErrorMessage(error, provider: nil))
             }
@@ -199,6 +217,7 @@ final class DaisyModel: ObservableObject {
         let wasIdle = activeTranslationCount == 0
         activeTranslationCount += 1
         if wasIdle {
+            startSpinner()
             onTranslationActivityChanged?(true)
         }
     }
@@ -206,18 +225,37 @@ final class DaisyModel: ObservableObject {
     func endTranslation() {
         activeTranslationCount = max(0, activeTranslationCount - 1)
         if activeTranslationCount == 0 {
+            stopSpinner()
             onTranslationActivityChanged?(false)
         }
     }
 
-    func showTransientStatus(_ message: String) {
+    func showTransientStatus(_ message: String, kind: TransientStatus.Kind) {
         transientStatusClearTask?.cancel()
-        transientStatusMessage = message
+        transientStatus = TransientStatus(message: message, kind: kind)
         transientStatusClearTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_400_000_000)
             guard !Task.isCancelled else { return }
-            self?.transientStatusMessage = nil
+            self?.transientStatus = nil
             self?.transientStatusClearTask = nil
         }
+    }
+
+    private func startSpinner() {
+        spinnerTask?.cancel()
+        spinnerAngle = 0
+        spinnerTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.spinnerAngle = (self.spinnerAngle + 30).truncatingRemainder(dividingBy: 360)
+            }
+        }
+    }
+
+    private func stopSpinner() {
+        spinnerTask?.cancel()
+        spinnerTask = nil
+        spinnerAngle = 0
     }
 }
