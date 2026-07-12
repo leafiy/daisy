@@ -693,42 +693,68 @@ struct DaisyMenuBarMenu: View {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    private static let icon = NSImage.daisyAppIcon()?.leafiyMenuBarSized()
+    private static let baseIcon = NSImage.daisyAppIcon()
 
     var body: some View {
-        ZStack {
-            if let image = Self.icon {
-                Image(nsImage: image)
-                    .opacity(model.isTranslating ? 0.35 : 1)
-            } else {
-                Image(systemName: "character.bubble")
-            }
-            if model.isTranslating {
-                Circle()
-                    .trim(from: 0, to: 0.7)
-                    .stroke(.primary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                    .rotationEffect(.degrees(model.spinnerAngle))
-                    .padding(1)
-            } else if let status = model.transientStatus {
-                MenuBarStatusBadge(kind: status.kind)
-            }
-        }
-        .frame(width: LeafiyDesign.Size.menuBarIcon, height: LeafiyDesign.Size.menuBarIcon)
+        // A MenuBarExtra label is flattened into the status item, which only
+        // reliably shows plain text and images: shapes, opacity, and alignment
+        // frames are dropped. Compose every state into a single NSImage instead.
+        Image(nsImage: MenuBarIconRenderer.render(
+            base: Self.baseIcon,
+            spinnerAngle: model.isTranslating ? model.spinnerAngle : nil,
+            badge: model.isTranslating ? nil : model.transientStatus?.kind
+        ))
         .accessibilityLabel(Text(verbatim: "Daisy"))
     }
 }
 
-/// Corner badge overlaid on the menu-bar icon for a transient outcome.
-private struct MenuBarStatusBadge: View {
-    let kind: DaisyModel.TransientStatus.Kind
+/// Draws the fixed-size menu-bar icon: base app icon, optionally dimmed under a
+/// rotating spinner arc while translating, or with a corner outcome badge.
+private enum MenuBarIconRenderer {
+    static func render(
+        base: NSImage?,
+        spinnerAngle: Double?,
+        badge: DaisyModel.TransientStatus.Kind?
+    ) -> NSImage {
+        let side = LeafiyDesign.Size.menuBarIcon
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            if let base {
+                base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: spinnerAngle == nil ? 1 : 0.35)
+            } else if let fallback = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "Daisy") {
+                fallback.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            }
 
-    var body: some View {
-        Image(systemName: kind == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-            .resizable()
-            .foregroundStyle(kind == .success ? Color.green : Color.red)
-            .background(Circle().fill(.background))
-            .frame(width: 9, height: 9)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            if let spinnerAngle {
+                let inset = rect.insetBy(dx: 1.3, dy: 1.3)
+                let start = CGFloat(90 - spinnerAngle)
+                let path = NSBezierPath()
+                path.appendArc(
+                    withCenter: NSPoint(x: inset.midX, y: inset.midY),
+                    radius: inset.width / 2,
+                    startAngle: start,
+                    endAngle: start - 252,
+                    clockwise: true
+                )
+                path.lineWidth = 1.6
+                path.lineCapStyle = .round
+                NSColor.labelColor.setStroke()
+                path.stroke()
+            }
+
+            if let badge {
+                let badgeSide: CGFloat = 9
+                let badgeRect = NSRect(x: rect.maxX - badgeSide, y: rect.minY, width: badgeSide, height: badgeSide)
+                let (symbolName, color): (String, NSColor) = badge == .success
+                    ? ("checkmark.circle.fill", .systemGreen)
+                    : ("exclamationmark.circle.fill", .systemRed)
+                let configuration = NSImage.SymbolConfiguration(paletteColors: [.white, color])
+                if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(configuration) {
+                    symbol.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+                }
+            }
+            return true
+        }
     }
 }
 
