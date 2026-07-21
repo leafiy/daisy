@@ -693,7 +693,7 @@ struct DaisyMenuBarMenu: View {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    private static let baseIcon = NSImage.daisyAppIcon()
+    private static let baseIcon = NSImage.daisyIcon()?.leafiyMenuBarSized()
 
     var body: some View {
         // A MenuBarExtra label is flattened into the status item, which only

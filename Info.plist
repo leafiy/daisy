@@ -10,6 +10,8 @@
 	<string>Daisy</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.leafiy.daisy</string>
 	<key>CFBundleInfoDictionaryVersion</key>
