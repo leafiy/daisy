@@ -1,6 +1,7 @@
 .build/
 Daisy.app/
 build/
+build.noindex/
 *.iconset/
 .DS_Store
 *.log
