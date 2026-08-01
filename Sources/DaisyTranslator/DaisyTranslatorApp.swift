@@ -4,6 +4,7 @@ import Foundation
 import SwiftUI
 import DaisyTranslatorCore
 import LeafiyUICore
+import LeafiyUI
 #if canImport(Translation)
 import Translation
 #endif
@@ -71,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowKeyObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SoftwareUpdateController.shared.startAutomaticCheck()
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
         let loadedSettings = normalized(settingsStore.load())
         LeafiyLocalization.language = loadedSettings.selectedAppLanguage

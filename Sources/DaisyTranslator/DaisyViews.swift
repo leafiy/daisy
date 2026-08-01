@@ -654,6 +654,7 @@ struct DaisyMenuBarMenu: View {
         SettingsLink {
             Text(L("Settings…"))
         }
+        SoftwareUpdateMenuButton()
         Picker(L("Target Language"), selection: Binding(
             get: { model.settings.targetLanguage },
             set: { language in model.updateSettings { $0.targetLanguage = language } }

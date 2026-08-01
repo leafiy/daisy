@@ -29,6 +29,8 @@
 	<string>1.0.10</string>
 	<key>CFBundleVersion</key>
 	<string>17</string>
+	<key>LeafiyUpdateFeedURL</key>
+	<string>https://leafiy.com/updates/daisy.json</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
