@@ -26,6 +26,9 @@ final class DaisyModel: ObservableObject {
     var pasteIntoFrontmostApp: ((String) async throws -> Void)?
     var ensurePastePermission: (() -> Bool)?
     var onTranslationActivityChanged: ((Bool) -> Void)?
+    /// Called with (source, translation, settings) after a translation
+    /// succeeds, so the delegate can store it in the local history.
+    var recordTranslation: ((String, String, AppSettings) -> Void)?
 
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
@@ -172,6 +175,7 @@ final class DaisyModel: ObservableObject {
             let translated = try await translateText(text, requestSettings)
             guard currentRequestID == requestID else { return }
             translatedText = translated
+            recordTranslation?(text, translated, requestSettings)
             flashMenuBarDot(.success)
             var copySucceeded = false
             if requestSettings.autoCopy {

@@ -1,5 +1,7 @@
 /* DaisyTranslator app strings — English key → Simplified Chinese. */
 
+"%1$ld of %2$ld saved" = "已保存 %1$ld / %2$ld 条";
+"%ld matches" = "匹配 %ld 条";
 "A minimal native Swift desktop translator for macOS" = "一个极简 macOS 原生 Swift 桌面翻译工具";
 "API Key" = "API Key";
 "About" = "关于";
@@ -22,12 +24,15 @@
 "Baidu Translate" = "百度翻译";
 "Baidu Translate Open Platform" = "百度翻译开放平台";
 "Base URL" = "Base URL";
+"Cancel" = "取消";
 "Chinese" = "中文";
 "Clear" = "清空";
+"Clear History" = "清空历史";
 "Clipboard is empty" = "剪贴板为空";
 "Close" = "关闭";
 "Completed" = "已完成";
 "Completed and copied" = "已完成并拷贝";
+"Completed translations are saved here." = "翻译完成后会保存在这里。";
 "Completed, copy failed" = "已完成，拷贝失败";
 "Configure Later" = "稍后配置";
 "Copied" = "已拷贝";
@@ -39,6 +44,8 @@
 "Current shortcut: %@" = "当前快捷键：%@";
 "Daisy does not collect accounts, device identifiers, contacts, browsing history, or analytics data.\n\nWhen you use Apple System Translation, translation is handled by macOS system translation. If you switch to external services such as DeepSeek, Google, Baidu, or OpenAI-compatible, the source text is sent to the translation endpoint you configure in General; the translation is returned by that service. API keys are stored only in the local settings file and are used to request the service you choose.\n\nClipboard watching is off by default. When enabled, Daisy reads clipboard text locally and translates it according to your configuration. Auto paste requires macOS Accessibility permission; Daisy sends Cmd+V only when paste is triggered." = "Daisy 不采集账号、设备标识、联系人、浏览记录或使用分析数据。\n\n当你使用 Apple 系统翻译时，翻译由 macOS 的系统翻译能力处理。改用 DeepSeek、Google、百度或 OpenAI-compatible 等外部服务时，原文会发送到你在“通用”里配置的翻译接口；译文由该服务返回。API Key 只保存在本机设置文件中，用于请求你选择的服务。\n\n剪贴板监听默认关闭。开启后，Daisy 会在本机读取剪贴板文本，并按你的配置进行翻译。自动粘贴需要 macOS 辅助功能权限，Daisy 只在触发粘贴时发送 Cmd+V。";
 "DeepSeek API Key" = "DeepSeek API Key";
+"Delete" = "删除";
+"Delete all translation history?" = "确定清空全部翻译历史？";
 "English" = "英语";
 "Enter source text to start translating" = "输入原文后开始翻译";
 "Fade the minimal window to frosted glass after a minute without focus" = "极简窗口失去焦点一分钟后淡出为毛玻璃半透明";
@@ -51,6 +58,7 @@
 "Google Cloud Translation" = "Google Cloud Translation";
 "Google Translate" = "Google 翻译";
 "Hide Window" = "隐藏窗口";
+"History is unavailable" = "历史记录不可用";
 "Idle Transparency" = "空闲透明";
 "Invalid shortcut" = "快捷键无效";
 "Later" = "稍后";
@@ -58,7 +66,9 @@
 "Model" = "模型";
 "Model name" = "模型名称";
 "No configuration needed" = "无需配置";
+"No matches" = "没有匹配结果";
 "No text selected" = "未选中文本";
+"No translation history yet" = "暂无翻译历史";
 "No translation yet" = "暂无译文";
 "Ollama Model Library" = "Ollama 模型库";
 "Open System Settings" = "打开系统设置";
@@ -77,6 +87,7 @@
 "Quit Daisy" = "退出 Daisy";
 "Read clipboard" = "已读取剪贴板";
 "Ready" = "就绪";
+"Search source or translation" = "搜索原文或译文";
 "Settings…" = "设置…";
 "Shortcut" = "快捷键";
 "Shortcut: %@" = "快捷键：%@";
@@ -85,12 +96,16 @@
 "Source input" = "原文输入框";
 "System translation timed out. Try again later." = "系统翻译超时，请稍后重试";
 "Target Language" = "目标语言";
+"The last 500 successful translations are kept in a local database inside Daisy's application support folder. They never leave your Mac, and you can delete them at any time from Translation History in the menu bar." = "最近 500 条成功的翻译会保存在 Daisy 应用支持目录下的本地数据库中，不会离开你的 Mac，可随时在菜单栏的“翻译历史”里删除。";
+"The local history database could not be opened." = "无法打开本地历史数据库。";
 "The system could not complete this translation. Make sure the source text language and target language are different and that the language packs are downloaded." = "系统无法完成这次翻译，请确认源文本语言和目标语言不同，且对应语言包已下载。";
 "Translate" = "翻译";
 "Translate selected text and show the translation in a popup toolbar" = "翻译选中文本并在弹出工具条中显示译文";
 "Translated and copied" = "已翻译并拷贝";
 "Translating…" = "翻译中…";
 "Translation" = "译文";
+"Translation History" = "翻译历史";
+"Translation History…" = "翻译历史…";
 "Translation completed, but copy failed. Try again." = "翻译完成，但拷贝失败，请重试";
 "Translation failed: %@" = "翻译失败：%@";
 "Translation output" = "译文输出框";

@@ -60,6 +60,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pasteboardService = PasteboardService()
     private let hotKeyCenter = HotKeyCenter()
     private let quickTranslatePopup = QuickTranslatePopupController()
+    private let history = TranslationHistoryController()
+    private lazy var historyWindow = TranslationHistoryWindowController(
+        history: history,
+        onCopy: { [weak self] text in
+            guard let self else { return }
+            if self.pasteboardService.writeText(text) {
+                self.showStatusMessage(L("Copied"), kind: .success)
+            } else {
+                self.showStatusMessage(L("Copy failed. Try again."), kind: .failure)
+            }
+        }
+    )
 
     private var clipboardTimer: Timer?
     private var lastClipboardText = ""
@@ -148,6 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.applyWindowBehavior()
             }
         }
+    }
+
+    func showHistoryWindow() {
+        historyWindow.show()
     }
 
     func applyWindowBehavior() {
@@ -314,6 +330,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onTranslationActivityChanged = { [weak self] isActive in
             self?.translationActivityChanged(isActive)
         }
+        model.recordTranslation = { [weak self] source, translated, settings in
+            self?.history.record(sourceText: source, translatedText: translated, settings: settings)
+        }
     }
 
     private func saveSettings(_ nextSettings: AppSettings) {
@@ -457,6 +476,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !Task.isCancelled else { return }
                 let translated = try await self.translate(text, settings: settingsSnapshot)
                 guard !Task.isCancelled else { return }
+                self.history.record(
+                    sourceText: text,
+                    translatedText: translated,
+                    settings: settingsSnapshot
+                )
                 self.model.flashMenuBarDot(.success)
                 let autoCopy = settingsSnapshot.quickTranslateAutoCopy
                 if autoCopy, !self.pasteboardService.writeText(translated) {

@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ModelProvider: String, Codable, CaseIterable, Equatable {
+public enum ModelProvider: String, Codable, CaseIterable, Equatable, Sendable {
     case appleSystem = "apple-system"
     case openAICompatible = "openai-compatible"
     case ollama
@@ -9,7 +9,7 @@ public enum ModelProvider: String, Codable, CaseIterable, Equatable {
     case baidu
 }
 
-public enum TargetLanguage: String, Codable, CaseIterable, Equatable {
+public enum TargetLanguage: String, Codable, CaseIterable, Equatable, Sendable {
     case auto
     case english
     case chinese

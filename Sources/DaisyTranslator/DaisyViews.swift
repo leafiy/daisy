@@ -413,7 +413,7 @@ struct DaisySettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            SettingsPane(L("Privacy"), systemImage: "hand.raised", height: 360) {
+            SettingsPane(L("Privacy"), systemImage: "hand.raised", height: 420) {
                 Section(L("Privacy")) {
                     Text(L("""
 Daisy does not collect accounts, device identifiers, contacts, browsing history, or analytics data.
@@ -425,6 +425,10 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    Text(L("The last 500 successful translations are kept in a local database inside Daisy's application support folder. They never leave your Mac, and you can delete them at any time from Translation History in the menu bar."))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             }
             AboutPane(
@@ -649,6 +653,9 @@ struct DaisyMenuBarMenu: View {
         }
         Button(L("Paste Current Translation")) {
             model.pasteResult()
+        }
+        Button(L("Translation History…")) {
+            appDelegate.showHistoryWindow()
         }
         Divider()
         SettingsLink {
