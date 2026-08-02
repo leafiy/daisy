@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import ServiceManagement
 import SwiftUI
 import DaisyTranslatorCore
 import LeafiyUICore
@@ -107,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LeafiyLocalization.language = loadedSettings.selectedAppLanguage
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
+        applyLaunchAtLogin(loadedSettings)
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
@@ -436,6 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try settingsStore.save(normalizedSettings)
             LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
+            applyLaunchAtLogin(normalizedSettings)
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()
@@ -445,6 +448,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } catch {
             model.statusText = L("Failed to save. Check settings file permissions.")
+        }
+    }
+
+    private func applyLaunchAtLogin(_ settings: AppSettings) {
+        do {
+            let service = SMAppService.mainApp
+            let status = service.status
+            if settings.launchAtLogin {
+                if status == .notRegistered {
+                    try service.register()
+                }
+            } else if status == .enabled || status == .requiresApproval {
+                try service.unregister()
+            }
+        } catch {
+            NSLog("Daisy: failed to apply launch-at-login setting: %@", String(describing: error))
         }
     }
 

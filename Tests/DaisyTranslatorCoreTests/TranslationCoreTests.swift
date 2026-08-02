@@ -214,6 +214,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(settings.baseURL, "")
         XCTAssertEqual(settings.model, "")
         XCTAssertFalse(settings.alwaysOnTop)
+        XCTAssertFalse(settings.launchAtLogin)
         XCTAssertEqual(ModelProvider.appleSystem.rawValue, "apple-system")
     }
 
@@ -274,6 +275,23 @@ final class TranslationCoreTests: XCTestCase {
             from: Data(#"{"minimalMode":true}"#.utf8)
         )
         XCTAssertTrue(enabledMinimalMode.minimalMode)
+    }
+
+    func testAppSettingsCodableDefaultsMissingLaunchAtLoginToFalseAndPreservesEnabledValue() throws {
+        let missingLaunchAtLogin = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(missingLaunchAtLogin.launchAtLogin)
+
+        let enabledLaunchAtLogin = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"launchAtLogin":true}"#.utf8)
+        )
+        XCTAssertTrue(enabledLaunchAtLogin.launchAtLogin)
+
+        let roundTripped = try JSONDecoder().decode(
+            AppSettings.self,
+            from: JSONEncoder().encode(enabledLaunchAtLogin)
+        )
+        XCTAssertTrue(roundTripped.launchAtLogin)
     }
 
     func testAppSettingsDecodingDefaultsMissingQuickTranslateAutoCopyToTrueAndReadsExplicitFalse() throws {

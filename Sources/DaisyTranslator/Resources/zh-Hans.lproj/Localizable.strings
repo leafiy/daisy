@@ -64,6 +64,7 @@
 "History is unavailable" = "历史记录不可用";
 "Invalid shortcut" = "快捷键无效";
 "Later" = "稍后";
+"Launch at login" = "开机自启动";
 "Loading installed models…" = "正在加载已安装模型…";
 "Local" = "本地";
 "Make the whole window translucent in both standard and minimal mode" = "普通模式与极简模式下都让整个窗口半透明";

@@ -65,6 +65,7 @@ public struct AppSettings: Codable, Equatable {
     public var targetLanguage: TargetLanguage
     public var onboardingCompleted: Bool
     public var appLanguage: String
+    public var launchAtLogin: Bool
 
     public init(
         baseURL: String,
@@ -91,12 +92,14 @@ public struct AppSettings: Codable, Equatable {
         provider: ModelProvider = .appleSystem,
         targetLanguage: TargetLanguage = .auto,
         onboardingCompleted: Bool = false,
-        appLanguage: String = "system"
+        appLanguage: String = "system",
+        launchAtLogin: Bool = false
     ) {
         self.provider = provider
         self.targetLanguage = targetLanguage
         self.onboardingCompleted = onboardingCompleted
         self.appLanguage = appLanguage
+        self.launchAtLogin = launchAtLogin
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
@@ -155,7 +158,8 @@ public struct AppSettings: Codable, Equatable {
             quickTranslateAutoCopy: true,
             provider: provider,
             targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto,
-            appLanguage: "system"
+            appLanguage: "system",
+            launchAtLogin: false
         )
     }
 
@@ -331,6 +335,7 @@ public struct AppSettings: Codable, Equatable {
         case targetLanguage
         case onboardingCompleted
         case appLanguage
+        case launchAtLogin
     }
 
     public init(from decoder: Decoder) throws {
@@ -388,5 +393,6 @@ public struct AppSettings: Codable, Equatable {
         quickTranslateAutoCopy = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateAutoCopy) ?? defaults.quickTranslateAutoCopy
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
         appLanguage = try container.decodeIfPresent(String.self, forKey: .appLanguage) ?? "system"
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
     }
 }

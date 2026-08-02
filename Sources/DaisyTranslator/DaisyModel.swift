@@ -38,7 +38,7 @@ final class DaisyModel: ObservableObject {
     /// Lists the models installed on the configured Ollama server.
     var fetchOllamaModels: ((AppSettings) async throws -> [String])?
     /// Live alpha feedback while an opacity slider is dragged. Saving a
-    /// settings change is comparatively expensive (disk, keychain, hot-key
+    /// settings change is comparatively expensive (disk I/O and hot-key
     /// re-registration), so the drag only previews and the value is
     /// persisted once, when the drag ends.
     var previewWindowOpacity: ((Double) -> Void)?

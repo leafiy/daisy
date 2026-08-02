@@ -410,6 +410,7 @@ struct DaisySettingsView: View {
             SettingsPane(L("General"), systemImage: "globe", height: 480) {
                 Section(L("General")) {
                     LanguagePicker(selection: appLanguageBinding)
+                    Toggle(L("Launch at login"), isOn: settingsBinding(\.launchAtLogin))
                     ProviderConfigurationForm(model: model)
                     providerHint
                 }

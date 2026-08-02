@@ -24,6 +24,12 @@ targets.append(
         resources: [.process("Resources")]
     )
 )
+targets.append(
+    .testTarget(
+        name: "DaisyTranslatorTests",
+        dependencies: ["DaisyTranslator"]
+    )
+)
 #endif
 
 let package = Package(
