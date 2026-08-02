@@ -4,92 +4,9 @@ import DaisyTranslatorCore
 import LeafiyUI
 import LeafiyUICore
 
-/// Utility panel listing stored translations, opened from the menu-bar menu.
-///
-/// A panel rather than another SwiftUI `Window` scene: the delegate's
-/// window-behavior code (minimal mode, always-on-top, transparency) targets
-/// the one non-panel window, so keeping history out of that set means it can
-/// never be mistaken for the main window.
-@MainActor
-final class TranslationHistoryWindowController: NSObject, NSWindowDelegate {
-    private let history: TranslationHistoryController
-    private let onCopy: (String) -> Void
-    private var panel: NSPanel?
-    private var languageObserver: NSObjectProtocol?
-
-    init(history: TranslationHistoryController, onCopy: @escaping (String) -> Void) {
-        self.history = history
-        self.onCopy = onCopy
-        super.init()
-        languageObserver = NotificationCenter.default.addObserver(
-            forName: LeafiyLocalization.languageDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshForLanguageChange()
-            }
-        }
-    }
-
-    deinit {
-        if let languageObserver {
-            NotificationCenter.default.removeObserver(languageObserver)
-        }
-    }
-
-    func show() {
-        let panel = self.panel ?? makePanel()
-        self.panel = panel
-        history.isPresented = true
-        history.reload()
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        history.isPresented = false
-    }
-
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: HistoryPanelMetrics.defaultSize),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = L("Translation History")
-        panel.isFloatingPanel = false
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.isExcludedFromWindowsMenu = false
-        panel.contentMinSize = HistoryPanelMetrics.minSize
-        panel.animationBehavior = .documentWindow
-        panel.delegate = self
-        panel.contentView = NSHostingView(rootView: content)
-        panel.center()
-        return panel
-    }
-
-    private var content: some View {
-        TranslationHistoryView(history: history, onCopy: onCopy)
-            .id(LeafiyLocalization.language.rawValue)
-    }
-
-    private func refreshForLanguageChange() {
-        guard let panel else { return }
-        panel.title = L("Translation History")
-        panel.contentView = NSHostingView(rootView: content)
-    }
-}
-
-private enum HistoryPanelMetrics {
-    static let defaultSize = NSSize(width: 480, height: 540)
-    static let minSize = NSSize(width: 380, height: 320)
-}
-
 struct TranslationHistoryView: View {
     @ObservedObject var history: TranslationHistoryController
+    @ObservedObject var model: DaisyModel
     let onCopy: (String) -> Void
 
     @State private var copiedEntryID: Int64?
@@ -97,23 +14,40 @@ struct TranslationHistoryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
-            Divider()
             list
             FooterBar {
                 Text(countLabel)
                     .lineLimit(1)
                 Spacer()
-                Button(L("Clear History")) {
+            }
+        }
+        .frame(
+            minWidth: LeafiyDesign.Size.mainWindowMinWidth,
+            minHeight: LeafiyDesign.Size.mainWindowMinHeight
+        )
+        .navigationTitle(L("Translation History"))
+        .searchable(
+            text: $history.searchTerm,
+            placement: .toolbar,
+            prompt: Text(L("Search source or translation"))
+        )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     isClearConfirmationPresented = true
+                } label: {
+                    Label(L("Clear History"), systemImage: "trash")
                 }
-                .buttonStyle(.borderless)
+                .help(L("Clear History"))
                 .disabled(history.totalCount == 0)
             }
         }
-        .frame(minWidth: HistoryPanelMetrics.minSize.width, minHeight: HistoryPanelMetrics.minSize.height)
         .onAppear {
+            history.isPresented = true
             history.reload()
+        }
+        .onDisappear {
+            history.isPresented = false
         }
         .confirmationDialog(
             L("Delete all translation history?"),
@@ -126,42 +60,26 @@ struct TranslationHistoryView: View {
         }
     }
 
-    private var searchBar: some View {
-        HStack(spacing: LeafiyDesign.Spacing.s) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField(L("Search source or translation"), text: $history.searchTerm)
-                .textFieldStyle(.plain)
-            if !history.searchTerm.isEmpty {
-                Button {
-                    history.searchTerm = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L("Clear"))
-            }
-        }
-        .padding(.horizontal, LeafiyDesign.Spacing.m)
-        .padding(.vertical, LeafiyDesign.Spacing.s)
-    }
-
     @ViewBuilder
     private var list: some View {
         if history.isUnavailable {
-            EmptyStateView(
-                systemImage: "exclamationmark.triangle",
-                title: L("History is unavailable"),
-                subtitle: L("The local history database could not be opened.")
-            )
+            ContentUnavailableView {
+                Label(L("History is unavailable"), systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(L("The local history database could not be opened."))
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if history.entries.isEmpty {
-            EmptyStateView(
-                systemImage: "clock.arrow.circlepath",
-                title: history.searchTerm.isEmpty ? L("No translation history yet") : L("No matches"),
-                subtitle: history.searchTerm.isEmpty ? L("Completed translations are saved here.") : nil
-            )
+            ContentUnavailableView {
+                Label(
+                    history.searchTerm.isEmpty ? L("No translation history yet") : L("No matches"),
+                    systemImage: "clock.arrow.circlepath"
+                )
+            } description: {
+                if history.searchTerm.isEmpty {
+                    Text(L("Completed translations are saved here."))
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(history.entries) { entry in

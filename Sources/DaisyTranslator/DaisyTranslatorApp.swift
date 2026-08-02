@@ -27,12 +27,38 @@ struct DaisyApp: App {
                 model: appDelegate.model,
                 appleTranslationBridge: appDelegate.appleTranslationService.bridgeView()
             )
+            .background {
+                DaisyWindowAccessor { window in
+                    appDelegate.registerMainWindow(window)
+                }
+            }
             .onAppear {
                 appDelegate.applyWindowBehavior()
             }
             .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
         .defaultSize(width: 620, height: 560)
+        .windowToolbarStyle(.unified)
+        .commands {
+            DaisyCommands(appDelegate: appDelegate)
+        }
+
+        Window(L("Translation History"), id: "history") {
+            TranslationHistoryView(
+                history: appDelegate.history,
+                model: appDelegate.model,
+                onCopy: { text in
+                    appDelegate.copyHistoryText(text)
+                }
+            )
+            .background {
+                DaisyWindowAccessor { window in
+                    appDelegate.registerHistoryWindow(window)
+                }
+            }
+        }
+        .defaultSize(width: 620, height: 560)
+        .windowToolbarStyle(.unified)
 
         Settings {
             DaisySettingsView(model: appDelegate.model)
@@ -60,18 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pasteboardService = PasteboardService()
     private let hotKeyCenter = HotKeyCenter()
     private let quickTranslatePopup = QuickTranslatePopupController()
-    private let history = TranslationHistoryController()
-    private lazy var historyWindow = TranslationHistoryWindowController(
-        history: history,
-        onCopy: { [weak self] text in
-            guard let self else { return }
-            if self.pasteboardService.writeText(text) {
-                self.showStatusMessage(L("Copied"), kind: .success)
-            } else {
-                self.showStatusMessage(L("Copy failed. Try again."), kind: .failure)
-            }
-        }
-    )
+    let history = TranslationHistoryController()
 
     private var clipboardTimer: Timer?
     private var lastClipboardText = ""
@@ -82,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliedMinimalLayout: Bool?
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var windowBackdrop: NSVisualEffectView?
+    private weak var mainWindow: NSWindow?
+    private weak var historyWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SoftwareUpdateController.shared.startAutomaticCheck()
@@ -159,8 +176,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func showHistoryWindow() {
-        historyWindow.show()
+    func showHistoryWindow(openWindow: OpenWindowAction) {
+        history.isPresented = true
+        history.reload()
+        openWindow(id: "history")
+        NSApp.activate(ignoringOtherApps: true)
+        Task { @MainActor in
+            // A SwiftUI Window scene is materialized asynchronously. The
+            // accessor normally registers it on the first runloop turn; keep
+            // polling briefly so opening from a status-item menu always raises
+            // the window on the active Space.
+            for _ in 0..<20 {
+                if let window = self.historyWindow {
+                    self.presentRegularWindow(window)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+    }
+
+    func registerMainWindow(_ window: NSWindow) {
+        mainWindow = window
+    }
+
+    func registerHistoryWindow(_ window: NSWindow) {
+        historyWindow = window
+        // The scene title is created before an in-app language change can
+        // rebuild the App value. Refresh it whenever SwiftUI updates the
+        // accessor so the title follows the rest of the localized content.
+        window.title = L("Translation History")
+    }
+
+    func copyHistoryText(_ text: String) {
+        if pasteboardService.writeText(text) {
+            showStatusMessage(L("Copied"), kind: .success)
+        } else {
+            showStatusMessage(L("Copy failed. Try again."), kind: .failure)
+        }
+    }
+
+    private func presentRegularWindow(_ window: NSWindow) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     func applyWindowBehavior() {
@@ -573,10 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func findMainWindow() -> NSWindow? {
-        NSApp.windows.first { window in
+        mainWindow ?? NSApp.windows.first { window in
             !(window is NSPanel) && window.title == "Daisy"
-        } ?? NSApp.windows.first { window in
-            !(window is NSPanel) && window.isVisible
         }
     }
 }

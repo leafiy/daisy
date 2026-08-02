@@ -4,6 +4,49 @@ import DaisyTranslatorCore
 import LeafiyUI
 import LeafiyUICore
 
+/// Hands the native window hosting a SwiftUI scene back to the app delegate.
+/// SwiftUI deliberately hides `NSWindow`; this zero-size observer lets menu-bar
+/// actions reliably raise the exact main/history window without guessing from
+/// localized titles or accidentally styling another window.
+struct DaisyWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> AccessorView {
+        AccessorView(onResolve: onResolve)
+    }
+
+    func updateNSView(_ nsView: AccessorView, context: Context) {
+        nsView.onResolve = onResolve
+        nsView.resolveWindow()
+    }
+
+    final class AccessorView: NSView {
+        var onResolve: (NSWindow) -> Void
+
+        init(onResolve: @escaping (NSWindow) -> Void) {
+            self.onResolve = onResolve
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            resolveWindow()
+        }
+
+        func resolveWindow() {
+            guard let window else { return }
+            onResolve(window)
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 struct TranslatorView: View {
     @ObservedObject var model: DaisyModel
     let appleTranslationBridge: AnyView
@@ -75,7 +118,7 @@ struct TranslatorView: View {
                 pinButton
                     .buttonStyle(.borderless)
             }
-            LeafiyCard {
+            GroupBox {
                 SourceTextEditor(
                     text: Binding(
                         get: { model.sourceText },
@@ -89,11 +132,17 @@ struct TranslatorView: View {
                 .frame(minHeight: MinimalLayout.paneMinHeight, maxHeight: .infinity)
                 .accessibilityLabel(L("Source input"))
             }
-            LeafiyCard {
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GroupBox {
                 minimalResultPane
-                    .frame(minHeight: MinimalLayout.paneMinHeight, maxHeight: .infinity)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: MinimalLayout.paneMinHeight,
+                        maxHeight: .infinity
+                    )
                     .accessibilityLabel(L("Translation output"))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(LeafiyDesign.Spacing.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -144,7 +193,7 @@ struct TranslatorView: View {
             Text(L("Source"))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
-            LeafiyCard {
+            GroupBox {
                 SourceTextEditor(
                     text: Binding(
                         get: { model.sourceText },
@@ -156,6 +205,7 @@ struct TranslatorView: View {
                 )
                 .accessibilityLabel(L("Source input"))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack {
                 Text(L("Translation"))
@@ -176,10 +226,12 @@ struct TranslatorView: View {
                     model.scheduleTranslation()
                 }
             }
-            LeafiyCard {
+            GroupBox {
                 resultPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(L("Translation output"))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(LeafiyDesign.Spacing.l)
     }
@@ -187,7 +239,11 @@ struct TranslatorView: View {
     @ViewBuilder
     private var resultPane: some View {
         if model.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            EmptyStateView(systemImage: "text.bubble", title: L("No translation yet"), subtitle: L("Enter source text to start translating"))
+            ContentUnavailableView(
+                L("No translation yet"),
+                systemImage: "text.bubble",
+                description: Text(L("Enter source text to start translating"))
+            )
         } else {
             ScrollView {
                 Text(model.translatedText)
@@ -816,7 +872,7 @@ struct DaisyMenuBarMenu: View {
             model.pasteResult()
         }
         Button(L("Translation History…")) {
-            appDelegate.showHistoryWindow()
+            appDelegate.showHistoryWindow(openWindow: openWindow)
         }
         Divider()
         Button(L("Settings…")) {
@@ -856,6 +912,24 @@ struct DaisyMenuBarMenu: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in model.updateSettings { $0[keyPath: keyPath] = value } }
         )
+    }
+}
+
+/// Standard app-menu entry for a standard auxiliary window. The menu-bar
+/// extra remains the fastest entry point, while this keeps Daisy consistent
+/// with ordinary macOS apps and makes history keyboard-accessible.
+struct DaisyCommands: Commands {
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .appSettings) {
+            Divider()
+            Button(L("Translation History…")) {
+                appDelegate.showHistoryWindow(openWindow: openWindow)
+            }
+            .keyboardShortcut("y", modifiers: .command)
+        }
     }
 }
 
@@ -926,4 +1000,3 @@ private enum MenuBarIconRenderer {
         path.stroke()
     }
 }
-

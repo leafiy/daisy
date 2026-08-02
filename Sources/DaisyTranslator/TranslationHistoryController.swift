@@ -2,11 +2,11 @@ import Foundation
 import SwiftUI
 import DaisyTranslatorCore
 
-/// Owns the translation-history database and the state the history panel binds
+/// Owns the translation-history database and the state the history window binds
 /// to: the current search term, the matching entries, and the total count.
 ///
 /// The store is opened once at launch. If that fails there is no history rather
-/// than no app: `isUnavailable` flips and the panel says so instead of showing a
+/// than no app: `isUnavailable` flips and the window says so instead of showing a
 /// permanently empty list.
 @MainActor
 final class TranslationHistoryController: ObservableObject {
@@ -21,7 +21,7 @@ final class TranslationHistoryController: ObservableObject {
     @Published private(set) var totalCount = 0
     @Published private(set) var isUnavailable = false
 
-    /// Set by the panel controller; recording only refreshes the published
+    /// Set by the history scene; recording only refreshes the published
     /// entries while someone is looking at them.
     var isPresented = false
 
