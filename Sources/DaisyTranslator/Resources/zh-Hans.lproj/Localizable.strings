@@ -7,7 +7,7 @@
 "API Key" = "API Key";
 "About" = "关于";
 "Allow Daisy to control the keyboard" = "允许 Daisy 控制键盘";
-"Apple System Translation is used by default and does not require an API key. Ollama can use the local service or a remote address, and its installed models are detected automatically; OpenAI-compatible can connect to your own service; DeepSeek, Google, and Baidu can use their official APIs." = "默认使用 Apple 系统翻译，不需要 API Key。Ollama 可使用本机服务或远程地址，并会自动识别已安装的模型；OpenAI-compatible 可接入你自己的服务；DeepSeek、Google 和百度可使用对应官方 API。";
+"Apple System Translation is used by default and does not require an API key. Ollama can use the local service or a remote address, and its installed models are detected automatically; OpenAI-compatible can connect to your own service (end the Base URL with # to use it verbatim as the full endpoint); DeepSeek, Google, and Baidu can use their official APIs." = "默认使用 Apple 系统翻译，不需要 API Key。Ollama 可使用本机服务或远程地址，并会自动识别已安装的模型；OpenAI-compatible 可接入你自己的服务（Base URL 以 # 结尾时将按原样作为完整端点使用）；DeepSeek、Google 和百度可使用对应官方 API。";
 "Apple System Translation is used by default. You can also switch to your own DeepSeek, Google, Baidu, or OpenAI-compatible service." = "默认使用 Apple 系统翻译。你也可以改用自己的 DeepSeek、Google、百度或 OpenAI-compatible 服务。";
 "Apple System Translation" = "Apple 系统翻译";
 "Auto (Chinese ↔ English)" = "自动（中英互译）";

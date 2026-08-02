@@ -207,7 +207,19 @@ public struct TranslationService {
     }
 
     public static func resolveChatURL(_ baseURL: String) throws -> URL {
-        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Cherry Studio convention: a trailing "#" pins the URL as the exact
+        // endpoint, for servers whose chat route is not .../chat/completions.
+        if trimmed.hasSuffix("#") {
+            trimmed.removeLast()
+            while trimmed.hasSuffix("/") {
+                trimmed.removeLast()
+            }
+            guard let url = URL(string: trimmed), url.host != nil else {
+                throw TranslationError.missingBaseURL
+            }
+            return url
+        }
         guard !trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty else {
             throw TranslationError.missingBaseURL
         }

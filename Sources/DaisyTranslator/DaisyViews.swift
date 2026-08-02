@@ -456,7 +456,7 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
     }
 
     private var providerHint: some View {
-        Text(L("Apple System Translation is used by default and does not require an API key. Ollama can use the local service or a remote address, and its installed models are detected automatically; OpenAI-compatible can connect to your own service; DeepSeek, Google, and Baidu can use their official APIs."))
+        Text(L("Apple System Translation is used by default and does not require an API key. Ollama can use the local service or a remote address, and its installed models are detected automatically; OpenAI-compatible can connect to your own service (end the Base URL with # to use it verbatim as the full endpoint); DeepSeek, Google, and Baidu can use their official APIs."))
             .font(.caption)
             .foregroundStyle(.secondary)
     }

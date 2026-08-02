@@ -37,6 +37,16 @@ final class TranslationCoreTests: XCTestCase {
                 name: "versioned base with query appends path before query",
                 baseURL: "https://llm.example.test/openai/deployments/translator/v1?api-version=2024-10-21",
                 expected: "https://llm.example.test/openai/deployments/translator/v1/chat/completions?api-version=2024-10-21"
+            ),
+            (
+                name: "trailing hash pins the exact endpoint",
+                baseURL: "https://tatools.example.test/api/translate#",
+                expected: "https://tatools.example.test/api/translate"
+            ),
+            (
+                name: "trailing hash strips slashes and keeps query",
+                baseURL: " https://llm.example.test/custom/route/?api-version=1# ",
+                expected: "https://llm.example.test/custom/route/?api-version=1"
             )
         ]
 
@@ -48,7 +58,7 @@ final class TranslationCoreTests: XCTestCase {
     }
 
     func testResolveChatURLRejectsEmptyBaseURL() {
-        let cases = ["", "   \n\t  ", "///"]
+        let cases = ["", "   \n\t  ", "///", "#", " ///# "]
 
         for baseURL in cases {
             XCTAssertThrowsError(try TranslationService.resolveChatURL(baseURL), "baseURL: \(baseURL.debugDescription)") { error in
