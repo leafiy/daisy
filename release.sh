@@ -101,23 +101,24 @@ printf '%s\n' "$CURRENT_BUILD" | grep -Eq '^[0-9]+$' || {
     exit 1
 }
 PUBLISHED_COMMIT=$(published_tag_commit "v$VERSION_NUMBER" || true)
-if [ -n "$PUBLISHED_COMMIT" ] && {
-    [ "$(git rev-parse HEAD)" != "$PUBLISHED_COMMIT" ] || [ -n "$(git status --porcelain)" ]
-}; then
+if [ -n "$PUBLISHED_COMMIT" ]; then
     if [ -n "$REQUESTED_VERSION" ]; then
-        echo "error: v$VERSION_NUMBER is already published from commit $PUBLISHED_COMMIT"
-        echo "hint: use a new version for the changed source"
-        exit 1
+        if [ "$(git rev-parse HEAD)" != "$PUBLISHED_COMMIT" ] || [ -n "$(git status --porcelain)" ]; then
+            echo "error: v$VERSION_NUMBER is already published from commit $PUBLISHED_COMMIT"
+            echo "hint: use a new version for the changed source"
+            exit 1
+        fi
+    else
+        VERSION_NUMBER=$(increment_version "$CURRENT_VERSION") || {
+            echo "error: cannot increment patch version '$CURRENT_VERSION'"
+            exit 1
+        }
+        [ -z "$(published_tag_commit "v$VERSION_NUMBER" || true)" ] || {
+            echo "error: next version v$VERSION_NUMBER is already published"
+            exit 1
+        }
+        echo "v$CURRENT_VERSION is already published; preparing next release v$VERSION_NUMBER"
     fi
-    VERSION_NUMBER=$(increment_version "$CURRENT_VERSION") || {
-        echo "error: cannot increment patch version '$CURRENT_VERSION'"
-        exit 1
-    }
-    [ -z "$(published_tag_commit "v$VERSION_NUMBER" || true)" ] || {
-        echo "error: next version v$VERSION_NUMBER is already published"
-        exit 1
-    }
-    echo "v$CURRENT_VERSION is already published; preparing v$VERSION_NUMBER for the changed source"
 fi
 if [ "$VERSION_NUMBER" != "$CURRENT_VERSION" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NUMBER" Info.plist >/dev/null
