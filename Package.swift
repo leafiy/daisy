@@ -3,7 +3,12 @@ import PackageDescription
 
 var products: [Product] = []
 var targets: [Target] = [
-    .target(name: "DaisyTranslatorCore"),
+    .target(
+        name: "DaisyTranslatorCore",
+        dependencies: [
+            .product(name: "LeafiyUICore", package: "leafiy-ui")
+        ]
+    ),
     .testTarget(
         name: "DaisyTranslatorCoreTests",
         dependencies: ["DaisyTranslatorCore"]

@@ -11,10 +11,6 @@ final class DaisyModel: ObservableObject {
     @Published private(set) var transientStatus: TransientStatus?
     @Published var isOnboardingPresented = false
     @Published private(set) var activeTranslationCount = 0
-    /// Phase of the menu-bar busy pulse, ticked by a task while translating.
-    /// `MenuBarExtra` labels only re-render on published changes, so the
-    /// animation must be driven from the model rather than a `TimelineView`.
-    @Published private(set) var busyPulsePhase: Double = 0
     /// Corner dot on the menu-bar icon reporting the last outcome.
     @Published private(set) var menuBarDot: MenuBarDot?
     /// Outcome of the last `/api/tags` probe against the configured Ollama
@@ -46,7 +42,6 @@ final class DaisyModel: ObservableObject {
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
     private var transientStatusClearTask: Task<Void, Never>?
-    private var busyPulseTask: Task<Void, Never>?
     private var menuBarDotClearTask: Task<Void, Never>?
     private var ollamaModelDiscoveryTask: Task<Void, Never>?
     private let minimumDebounceMilliseconds = 150
@@ -64,8 +59,6 @@ final class DaisyModel: ObservableObject {
 
     struct MenuBarDot: Equatable {
         let kind: TransientStatus.Kind
-        /// True for the first beat after appearing; drawn slightly oversized.
-        let isPopped: Bool
     }
 
     enum OllamaModelDiscovery: Equatable {
@@ -313,7 +306,6 @@ final class DaisyModel: ObservableObject {
         if wasIdle {
             menuBarDotClearTask?.cancel()
             menuBarDot = nil
-            startBusyPulse()
             onTranslationActivityChanged?(true)
         }
     }
@@ -321,7 +313,6 @@ final class DaisyModel: ObservableObject {
     func endTranslation() {
         activeTranslationCount = max(0, activeTranslationCount - 1)
         if activeTranslationCount == 0 {
-            stopBusyPulse()
             onTranslationActivityChanged?(false)
         }
     }
@@ -338,37 +329,16 @@ final class DaisyModel: ObservableObject {
         }
     }
 
-    /// Shows the outcome dot: pops in slightly oversized, settles after a
-    /// beat, and disappears on its own 10 seconds later.
+    /// Shows the outcome dot, which disappears on its own 10 seconds later.
     func flashMenuBarDot(_ kind: TransientStatus.Kind) {
         menuBarDotClearTask?.cancel()
-        menuBarDot = MenuBarDot(kind: kind, isPopped: true)
+        menuBarDot = MenuBarDot(kind: kind)
         menuBarDotClearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.menuBarDot = MenuBarDot(kind: kind, isPopped: false)
-            try? await Task.sleep(nanoseconds: 9_800_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard !Task.isCancelled else { return }
-            self.menuBarDot = nil
-            self.menuBarDotClearTask = nil
+            self?.menuBarDot = nil
+            self?.menuBarDotClearTask = nil
         }
     }
 
-    private func startBusyPulse() {
-        busyPulseTask?.cancel()
-        busyPulsePhase = 0
-        busyPulseTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                guard let self, !Task.isCancelled else { return }
-                self.busyPulsePhase = (self.busyPulsePhase + 30).truncatingRemainder(dividingBy: 360)
-            }
-        }
-    }
-
-    private func stopBusyPulse() {
-        busyPulseTask?.cancel()
-        busyPulseTask = nil
-        busyPulsePhase = 0
-    }
 }

@@ -1,10 +1,14 @@
 import AppKit
-import Carbon.HIToolbox
 import Foundation
 
 @MainActor
 final class PasteboardService {
     private(set) var lastProgrammaticText = ""
+
+    private enum VirtualKey {
+        static let c = 8
+        static let v = 9
+    }
 
     func readText() -> String {
         NSPasteboard.general.string(forType: .string) ?? ""
@@ -69,7 +73,7 @@ final class PasteboardService {
     func copySelectedTextFromFrontmostApp() async throws -> String? {
         let pasteboard = NSPasteboard.general
         let changeCountBefore = pasteboard.changeCount
-        try sendCommandKeystroke(kVK_ANSI_C)
+        try sendCommandKeystroke(Self.VirtualKey.c)
         // Give the frontmost app time to service the copy; apps with
         // asynchronous clipboards (browsers) can take a few hundred ms.
         for _ in 0..<8 {
@@ -91,7 +95,7 @@ final class PasteboardService {
         }
 
         try await Task.sleep(nanoseconds: 120_000_000)
-        try sendCommandKeystroke(kVK_ANSI_V)
+        try sendCommandKeystroke(Self.VirtualKey.v)
 
         if wasVisible {
             try await Task.sleep(nanoseconds: 180_000_000)

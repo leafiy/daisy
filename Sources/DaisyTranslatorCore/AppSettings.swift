@@ -1,4 +1,5 @@
 import Foundation
+import LeafiyUICore
 
 public enum ModelProvider: String, Codable, CaseIterable, Equatable, Sendable {
     case appleSystem = "apple-system"
@@ -34,7 +35,7 @@ public struct ProviderConfiguration: Codable, Equatable {
     }
 }
 
-public struct AppSettings: Codable, Equatable {
+public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
     public var provider: ModelProvider
     public var baseURL: String
     public var apiKey: String
@@ -163,6 +164,10 @@ public struct AppSettings: Codable, Equatable {
         )
     }
 
+    public static var defaults: AppSettings {
+        defaults(environment: ProcessInfo.processInfo.environment)
+    }
+
     /// Rules that fire on a settings transition rather than on a state.
     /// Enabling minimal mode switches auto-copy on: the compact window hides
     /// the result affordances, so completed translations must land on the
@@ -173,6 +178,60 @@ public struct AppSettings: Codable, Equatable {
             next.autoCopy = true
         }
         return next
+    }
+
+    public func normalized() -> AppSettings {
+        let defaults = AppSettings.defaults
+        let providerDefaultBaseURL = AppSettings.defaultBaseURL(for: provider)
+        let providerDefaultModel = AppSettings.defaultModel(for: provider)
+        var providerConfigurations = AppSettings.defaultProviderConfigurations()
+        providerConfigurations.merge(self.providerConfigurations) { _, savedConfiguration in
+            savedConfiguration
+        }
+        if self.providerConfigurations[provider.rawValue] == nil {
+            providerConfigurations[provider.rawValue] = ProviderConfiguration(
+                baseURL: baseURL.isEmpty ? providerDefaultBaseURL : baseURL,
+                apiKey: apiKey,
+                model: model.isEmpty ? providerDefaultModel : model
+            )
+        }
+        let activeConfiguration = AppSettings.normalizedProviderConfiguration(
+            providerConfigurations[provider.rawValue] ?? AppSettings.defaultConfiguration(for: provider),
+            for: provider
+        )
+        providerConfigurations[provider.rawValue] = activeConfiguration
+        var normalized = AppSettings(
+            baseURL: activeConfiguration.baseURL,
+            apiKey: activeConfiguration.apiKey,
+            model: activeConfiguration.model,
+            providerConfigurations: providerConfigurations,
+            ollamaConnection: ollamaConnection,
+            temperature: temperature == 0 ? defaults.temperature : temperature,
+            topP: topP == 0 ? defaults.topP : topP,
+            maxTokens: maxTokens == 0 ? defaults.maxTokens : maxTokens,
+            debounceMilliseconds: debounceMilliseconds == 0 ? defaults.debounceMilliseconds : debounceMilliseconds,
+            autoTranslate: autoTranslate,
+            watchClipboard: watchClipboard,
+            autoCopy: autoCopy,
+            autoPaste: autoPaste,
+            alwaysOnTop: alwaysOnTop,
+            minimalMode: minimalMode,
+            windowOpacityEnabled: windowOpacityEnabled,
+            focusedWindowOpacity: focusedWindowOpacity,
+            unfocusedWindowOpacity: unfocusedWindowOpacity,
+            quickTranslateEnabled: quickTranslateEnabled,
+            quickTranslateShortcut: quickTranslateShortcut.isEmpty ? defaults.quickTranslateShortcut : quickTranslateShortcut,
+            quickTranslateAutoCopy: quickTranslateAutoCopy,
+            provider: provider,
+            targetLanguage: targetLanguage,
+            onboardingCompleted: onboardingCompleted,
+            appLanguage: appLanguage,
+            launchAtLogin: launchAtLogin
+        )
+        if AppLanguage(rawValue: normalized.appLanguage) == nil {
+            normalized.appLanguage = AppLanguage.system.rawValue
+        }
+        return normalized
     }
 
     /// Fully opaque is the top of the range; below `minWindowOpacity` the
@@ -307,6 +366,36 @@ public struct AppSettings: Codable, Equatable {
             return ProviderConfiguration(baseURL: baseURL, apiKey: apiKey, model: model)
         }
         return AppSettings.defaultConfiguration(for: provider)
+    }
+
+    private static func normalizedProviderConfiguration(
+        _ configuration: ProviderConfiguration,
+        for provider: ModelProvider
+    ) -> ProviderConfiguration {
+        var normalized = ProviderConfiguration(
+            baseURL: configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            apiKey: configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            model: configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        if normalized.baseURL.isEmpty {
+            normalized.baseURL = AppSettings.defaultBaseURL(for: provider)
+        }
+        switch provider {
+        case .appleSystem:
+            normalized = ProviderConfiguration(baseURL: "", apiKey: "", model: "")
+        case .google, .baidu:
+            normalized.model = ""
+        case .deepSeek:
+            normalized.baseURL = AppSettings.defaultBaseURL(for: .deepSeek)
+            if normalized.model.isEmpty {
+                normalized.model = AppSettings.defaultModel(for: .deepSeek)
+            }
+        case .ollama, .openAICompatible:
+            if normalized.model.isEmpty {
+                normalized.model = AppSettings.defaultModel(for: provider)
+            }
+        }
+        return normalized
     }
 
     enum CodingKeys: String, CodingKey {

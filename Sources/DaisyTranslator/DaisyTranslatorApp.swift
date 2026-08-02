@@ -1,7 +1,6 @@
 import AppKit
 import ApplicationServices
 import Foundation
-import ServiceManagement
 import SwiftUI
 import DaisyTranslatorCore
 import LeafiyUICore
@@ -29,7 +28,7 @@ struct DaisyApp: App {
                 appleTranslationBridge: appDelegate.appleTranslationService.bridgeView()
             )
             .background {
-                DaisyWindowAccessor { window in
+                LeafiyWindowAccessor { window in
                     appDelegate.registerMainWindow(window)
                 }
             }
@@ -53,7 +52,7 @@ struct DaisyApp: App {
                 }
             )
             .background {
-                DaisyWindowAccessor { window in
+                LeafiyWindowAccessor { window in
                     appDelegate.registerHistoryWindow(window)
                 }
             }
@@ -85,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsStore = SettingsStore()
     private let translationService = TranslationService()
     private let pasteboardService = PasteboardService()
-    private let hotKeyCenter = HotKeyCenter()
+    private let hotKeyCenter = LeafiyHotKeyCenter(signature: "TTTR")
     private let quickTranslatePopup = QuickTranslatePopupController()
     let history = TranslationHistoryController()
 
@@ -101,14 +100,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var mainWindow: NSWindow?
     private weak var historyWindow: NSWindow?
 
+    private enum HotKeyID: UInt32 {
+        case quickTranslateSelection = 2
+        case toggleAlwaysOnTop = 3
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         SoftwareUpdateController.shared.startAutomaticCheck()
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
-        let loadedSettings = normalized(settingsStore.load())
+        let loadedSettings = settingsStore.load()
         LeafiyLocalization.language = loadedSettings.selectedAppLanguage
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
-        applyLaunchAtLogin(loadedSettings)
+        LeafiyLaunchAtLogin.setEnabled(loadedSettings.launchAtLogin)
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
@@ -126,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
-        hotKeyCenter.unregister()
+        hotKeyCenter.unregisterAll()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -169,11 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.orderOut(nil)
         } else {
             openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                self.findMainWindow()?.makeKeyAndOrderFront(nil)
+            LeafiyWindowPresenter.presentWhenAvailable {
+                guard let window = self.findMainWindow() else { return nil }
                 self.applyWindowBehavior()
+                return window
             }
         }
     }
@@ -182,20 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         history.isPresented = true
         history.reload()
         openWindow(id: "history")
-        NSApp.activate(ignoringOtherApps: true)
-        Task { @MainActor in
-            // A SwiftUI Window scene is materialized asynchronously. The
-            // accessor normally registers it on the first runloop turn; keep
-            // polling briefly so opening from a status-item menu always raises
-            // the window on the active Space.
-            for _ in 0..<20 {
-                if let window = self.historyWindow {
-                    self.presentRegularWindow(window)
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 20_000_000)
-            }
-        }
+        LeafiyWindowPresenter.presentWhenAvailable { self.historyWindow }
     }
 
     func registerMainWindow(_ window: NSWindow) {
@@ -216,15 +206,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             showStatusMessage(L("Copy failed. Try again."), kind: .failure)
         }
-    }
-
-    private func presentRegularWindow(_ window: NSWindow) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        window.collectionBehavior.insert(.moveToActiveSpace)
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
     }
 
     func applyWindowBehavior() {
@@ -433,12 +414,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func saveSettings(_ nextSettings: AppSettings) {
         let previousSettings = model.settings
-        let normalizedSettings = normalized(nextSettings.applyingTransitions(from: previousSettings))
+        let normalizedSettings = nextSettings.applyingTransitions(from: previousSettings).normalized()
         model.replaceSettings(normalizedSettings)
         do {
             try settingsStore.save(normalizedSettings)
             LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
-            applyLaunchAtLogin(normalizedSettings)
+            LeafiyLaunchAtLogin.setEnabled(normalizedSettings.launchAtLogin)
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()
@@ -449,47 +430,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             model.statusText = L("Failed to save. Check settings file permissions.")
         }
-    }
-
-    private func applyLaunchAtLogin(_ settings: AppSettings) {
-        do {
-            let service = SMAppService.mainApp
-            let status = service.status
-            if settings.launchAtLogin {
-                if status == .notRegistered {
-                    try service.register()
-                }
-            } else if status == .enabled || status == .requiresApproval {
-                try service.unregister()
-            }
-        } catch {
-            NSLog("Daisy: failed to apply launch-at-login setting: %@", String(describing: error))
-        }
-    }
-
-    private func normalized(_ settings: AppSettings) -> AppSettings {
-        var normalized = settings
-        var providerConfigurations = AppSettings.defaultProviderConfigurations()
-        providerConfigurations.merge(normalized.providerConfigurations) { _, savedConfiguration in
-            savedConfiguration
-        }
-        let activeConfiguration = normalizedServiceConfiguration(
-            ProviderConfiguration(
-                baseURL: normalized.baseURL,
-                apiKey: normalized.apiKey,
-                model: normalized.model
-            ),
-            for: normalized.provider
-        )
-        providerConfigurations[normalized.provider.rawValue] = activeConfiguration
-        normalized.providerConfigurations = providerConfigurations
-        normalized.baseURL = activeConfiguration.baseURL
-        normalized.apiKey = activeConfiguration.apiKey
-        normalized.model = activeConfiguration.model
-        if AppLanguage(rawValue: normalized.appLanguage) == nil {
-            normalized.appLanguage = AppLanguage.system.rawValue
-        }
-        return normalized
     }
 
     private func shouldRetryTranslation(afterChangingFrom oldSettings: AppSettings, to newSettings: AppSettings) -> Bool {
@@ -533,19 +473,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotKeys() {
-        hotKeyCenter.onHotKey = { [weak self] hotKey in
-            guard let self else { return }
-            switch hotKey {
-            case .quickTranslateSelection:
-                self.translateSelectionWithoutWindow()
-            case .toggleAlwaysOnTop:
-                self.model.updateSettings { $0.alwaysOnTop.toggle() }
+        hotKeyCenter.unregisterAll()
+        hotKeyCenter.onRegisterFailed = { [weak self] shortcut in
+            DispatchQueue.main.async { [weak self] in
+                self?.showStatusMessage(
+                    String(format: L("Couldn’t register shortcut %@. Another app may already own it."), shortcut.display),
+                    kind: .failure
+                )
             }
         }
-        hotKeyCenter.register(
-            quickTranslateEnabled: model.settings.quickTranslateEnabled,
-            quickTranslateShortcut: model.settings.quickTranslateShortcut
-        )
+
+        if let alwaysOnTopShortcut = KeyboardShortcutSpec(first: .command, second: .shift, key: "O") {
+            hotKeyCenter.register(id: HotKeyID.toggleAlwaysOnTop.rawValue, shortcut: alwaysOnTopShortcut) { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    self?.model.updateSettings { $0.alwaysOnTop.toggle() }
+                }
+            }
+        }
+
+        if model.settings.quickTranslateEnabled,
+           let quickTranslateShortcut = KeyboardShortcutSpec(parsing: model.settings.quickTranslateShortcut) {
+            hotKeyCenter.register(id: HotKeyID.quickTranslateSelection.rawValue, shortcut: quickTranslateShortcut) { [weak self] in
+                DispatchQueue.main.async { [weak self] in
+                    self?.translateSelectionWithoutWindow()
+                }
+            }
+        }
     }
 
     private func configureQuickTranslatePopup() {

@@ -9,12 +9,12 @@ import LeafiyUICore
 /// focus from the frontmost app, its text is selectable with the cursor, and
 /// it stays open for as long as the pointer is inside it.
 @MainActor
-final class QuickTranslatePopupController: NSObject {
+final class QuickTranslatePopupController: NSObject, NSWindowDelegate {
     /// Fired when the user flips the "Auto copy" checkbox in the popup.
     /// Arguments: new state, currently displayed translation.
     var onAutoCopyChanged: ((Bool, String) -> Void)?
 
-    private var panel: QuickTranslatePanel?
+    private var panel: LeafiyFloatingPanel?
     private var lingerTimer: Timer?
     private var currentText = ""
     private var currentAutoCopyEnabled = true
@@ -78,7 +78,19 @@ final class QuickTranslatePopupController: NSObject {
     func close() {
         lingerTimer?.invalidate()
         lingerTimer = nil
+        let panel = panel
+        self.panel = nil
+        panel?.delegate = nil
         panel?.orderOut(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingPanel = notification.object as? LeafiyFloatingPanel,
+              closingPanel === panel
+        else { return }
+        lingerTimer?.invalidate()
+        lingerTimer = nil
+        panel?.delegate = nil
         panel = nil
     }
 
@@ -110,32 +122,20 @@ final class QuickTranslatePopupController: NSObject {
 
     // MARK: - Panel construction
 
-    private func makePanel(text: String, autoCopyEnabled: Bool) -> QuickTranslatePanel {
+    private func makePanel(text: String, autoCopyEnabled: Bool) -> LeafiyFloatingPanel {
         let panelSize = fittingPanelSize(for: text)
-        let panel = QuickTranslatePanel(
-            contentRect: NSRect(origin: .zero, size: panelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = LeafiyFloatingPanel(
+            configuration: LeafiyFloatingPanelConfiguration(
+                canBecomeKey: true,
+                isMovable: true,
+                hasShadow: true
+            ),
+            content: popupContent(text: text, autoCopyEnabled: autoCopyEnabled)
         )
-        panel.isFloatingPanel = true
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
+        panel.setFrame(NSRect(origin: .zero, size: panelSize), display: false)
+        panel.contentView?.frame = NSRect(origin: .zero, size: panelSize)
         panel.animationBehavior = .utilityWindow
-        panel.onCancel = { [weak self] in self?.close() }
-
-        let content = popupContent(text: text, autoCopyEnabled: autoCopyEnabled)
-        let hostingView = NSHostingView(rootView: content)
-        hostingView.frame = NSRect(origin: .zero, size: panelSize)
-        hostingView.autoresizingMask = [.width, .height]
-        panel.contentView = hostingView
+        panel.delegate = self
         return panel
     }
 
@@ -155,11 +155,7 @@ final class QuickTranslatePopupController: NSObject {
 
     private func refreshForLanguageChange() {
         guard let panel else { return }
-        let panelSize = panel.frame.size
-        let hostingView = NSHostingView(rootView: popupContent(text: currentText, autoCopyEnabled: currentAutoCopyEnabled))
-        hostingView.frame = NSRect(origin: .zero, size: panelSize)
-        hostingView.autoresizingMask = [.width, .height]
-        panel.contentView = hostingView
+        panel.setContent(popupContent(text: currentText, autoCopyEnabled: currentAutoCopyEnabled))
     }
 
     private func fittingPanelSize(for text: String) -> NSSize {
@@ -287,9 +283,21 @@ final class QuickTranslatePopupController: NSObject {
 
 private struct QuickTranslatePopupContent: View {
     let text: String
-    @State var autoCopyEnabled: Bool
+    @State private var autoCopyEnabled: Bool
     let onAutoCopyChanged: (Bool) -> Void
     let onClose: () -> Void
+
+    init(
+        text: String,
+        autoCopyEnabled: Bool,
+        onAutoCopyChanged: @escaping (Bool) -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.text = text
+        self._autoCopyEnabled = State(initialValue: autoCopyEnabled)
+        self.onAutoCopyChanged = onAutoCopyChanged
+        self.onClose = onClose
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LeafiyDesign.Spacing.s) {
@@ -327,17 +335,3 @@ private struct QuickTranslatePopupContent: View {
     }
 }
 
-/// Borderless panels refuse key status by default; this one accepts it so
-/// cursor text selection works, while `.nonactivatingPanel` keeps the
-/// frontmost app active. Esc dismisses.
-private final class QuickTranslatePanel: NSPanel {
-    var onCancel: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func cancelOperation(_ sender: Any?) {
-        onCancel?()
-    }
-
-}

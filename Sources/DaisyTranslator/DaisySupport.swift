@@ -1,36 +1,7 @@
 import AppKit
 import Foundation
 import DaisyTranslatorCore
-
-func normalizedServiceConfiguration(
-    _ configuration: ProviderConfiguration,
-    for provider: ModelProvider
-) -> ProviderConfiguration {
-    var normalized = ProviderConfiguration(
-        baseURL: configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-        apiKey: configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-        model: configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
-    )
-    if normalized.baseURL.isEmpty {
-        normalized.baseURL = AppSettings.defaultBaseURL(for: provider)
-    }
-    switch provider {
-    case .appleSystem:
-        normalized = ProviderConfiguration(baseURL: "", apiKey: "", model: "")
-    case .google, .baidu:
-        normalized.model = ""
-    case .deepSeek:
-        normalized.baseURL = AppSettings.defaultBaseURL(for: .deepSeek)
-        if normalized.model.isEmpty {
-            normalized.model = AppSettings.defaultModel(for: .deepSeek)
-        }
-    case .ollama, .openAICompatible:
-        if normalized.model.isEmpty {
-            normalized.model = AppSettings.defaultModel(for: provider)
-        }
-    }
-    return normalized
-}
+import LeafiyUICore
 
 func providerTitle(_ provider: ModelProvider) -> String {
     switch provider {
@@ -136,18 +107,8 @@ extension NSImage {
         return nil
     }
 
-    private static var daisyResources: Bundle {
-        let bundleName = "DaisyTranslator_DaisyTranslator.bundle"
-        let candidates = [
-            Bundle.main.resourceURL?.appendingPathComponent(bundleName, isDirectory: true),
-            Bundle.main.bundleURL.appendingPathComponent(bundleName, isDirectory: true)
-        ].compactMap { $0 }
-
-        for url in candidates {
-            if let bundle = Bundle(url: url) {
-                return bundle
-            }
-        }
-        return Bundle.main
-    }
+    private static let daisyResources = LeafiyLocalization.moduleBundle(
+        package: "daisy",
+        target: "DaisyTranslator"
+    )
 }

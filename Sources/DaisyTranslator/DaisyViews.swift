@@ -4,49 +4,6 @@ import DaisyTranslatorCore
 import LeafiyUI
 import LeafiyUICore
 
-/// Hands the native window hosting a SwiftUI scene back to the app delegate.
-/// SwiftUI deliberately hides `NSWindow`; this zero-size observer lets menu-bar
-/// actions reliably raise the exact main/history window without guessing from
-/// localized titles or accidentally styling another window.
-struct DaisyWindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow) -> Void
-
-    func makeNSView(context: Context) -> AccessorView {
-        AccessorView(onResolve: onResolve)
-    }
-
-    func updateNSView(_ nsView: AccessorView, context: Context) {
-        nsView.onResolve = onResolve
-        nsView.resolveWindow()
-    }
-
-    final class AccessorView: NSView {
-        var onResolve: (NSWindow) -> Void
-
-        init(onResolve: @escaping (NSWindow) -> Void) {
-            self.onResolve = onResolve
-            super.init(frame: .zero)
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            resolveWindow()
-        }
-
-        func resolveWindow() {
-            guard let window else { return }
-            onResolve(window)
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-}
-
 struct TranslatorView: View {
     @ObservedObject var model: DaisyModel
     let appleTranslationBridge: AnyView
@@ -407,24 +364,24 @@ struct DaisySettingsView: View {
 
     var body: some View {
         SettingsScaffold {
-            SettingsPane(L("General"), systemImage: "globe", height: 480) {
-                Section(L("General")) {
-                    LanguagePicker(selection: appLanguageBinding)
-                    Toggle(L("Launch at login"), isOn: settingsBinding(\.launchAtLogin))
-                    ProviderConfigurationForm(model: model)
-                    providerHint
+            LeafiyGeneralPane(
+                language: appLanguageBinding,
+                launchAtLogin: settingsBinding(\.launchAtLogin)
+            ) {
+                LabeledContent(L("Shortcut")) {
+                    ShortcutField(spec: shortcutBinding)
                 }
+                Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } tail: {
+                ProviderConfigurationForm(model: model)
+                providerHint
             }
             SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 700) {
                 Section(L("Quick Translate")) {
                     Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
                     Text(L("Translate selected text and show the translation in a popup toolbar"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    LabeledContent(L("Shortcut")) {
-                        ShortcutField(spec: shortcutBinding)
-                    }
-                    Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle(L("Quick Translate Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
@@ -521,7 +478,7 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
             },
             set: { spec in
                 let shortcut = spec.canonicalDescription
-                guard HotKeyCenter.isShortcutSupported(shortcut) else {
+                guard LeafiyHotKeyCenter.isShortcutSupported(spec) else {
                     model.showTransientStatus(L("Invalid shortcut"), kind: .failure)
                     return
                 }
@@ -876,10 +833,6 @@ struct DaisyMenuBarMenu: View {
             appDelegate.showHistoryWindow(openWindow: openWindow)
         }
         Divider()
-        Button(L("Settings…")) {
-            LeafiySettingsWindow.open()
-        }
-        SoftwareUpdateMenuButton()
         Picker(L("Target Language"), selection: Binding(
             get: { model.settings.targetLanguage },
             set: { language in model.updateSettings { $0.targetLanguage = language } }
@@ -896,11 +849,7 @@ struct DaisyMenuBarMenu: View {
         Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
         Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
         Text(String(format: L("Shortcut: %@"), shortcutDisplay))
-        Divider()
-        Button(L("Quit Daisy")) {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
+        LeafiyMenuTail()
     }
 
     private var shortcutDisplay: String {
@@ -937,67 +886,32 @@ struct DaisyCommands: Commands {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    private static let baseIcon = NSImage.daisyIcon()?.leafiyMenuBarSized()
+    private static let baseIcon = LeafiyMenuBarIconRenderer.baseIcon(
+        NSImage.daisyIcon(),
+        symbolFallback: "character.bubble",
+        accessibilityDescription: "Daisy"
+    )
 
     var body: some View {
-        // A MenuBarExtra label is flattened into the status item, which only
-        // reliably shows plain text and images: shapes, opacity, and alignment
-        // frames are dropped. Compose every state into a single NSImage instead.
-        Image(nsImage: MenuBarIconRenderer.render(
-            base: Self.baseIcon,
-            busyPulsePhase: model.isTranslating ? model.busyPulsePhase : nil,
-            dot: model.isTranslating ? nil : model.menuBarDot
-        ))
+        Image(nsImage: LeafiyMenuBarIconRenderer.image(base: Self.baseIcon, status: menuBarStatus))
         .accessibilityLabel(Text(verbatim: "Daisy"))
     }
-}
 
-/// Draws the fixed-size menu-bar icon with a small status dot in the
-/// bottom-right corner: a pulsing accent dot while translating, a green dot
-/// after success, a red dot after failure. The icon itself never changes.
-private enum MenuBarIconRenderer {
-    static func render(
-        base: NSImage?,
-        busyPulsePhase: Double?,
-        dot: DaisyModel.MenuBarDot?
-    ) -> NSImage {
-        let side = LeafiyDesign.Size.menuBarIcon
-        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            if let base {
-                base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
-            } else if let fallback = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "Daisy") {
-                fallback.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
-            }
+    private var menuBarStatus: LeafiyMenuBarStatus {
+        if model.isTranslating {
+            return .busy
+        }
 
-            if let busyPulsePhase {
-                // Breathing accent dot: diameter oscillates 4…6.5pt.
-                let diameter = 5.25 + 1.25 * sin(busyPulsePhase * .pi / 180)
-                drawStatusDot(in: rect, diameter: diameter, color: .controlAccentColor)
-            } else if let dot {
-                drawStatusDot(
-                    in: rect,
-                    diameter: dot.isPopped ? 7.5 : 6,
-                    color: dot.kind == .success ? .systemGreen : .systemRed
-                )
-            }
-            return true
+        guard let kind = model.menuBarDot?.kind else {
+            return .idle
+        }
+
+        switch kind {
+        case .success:
+            return .success
+        case .failure:
+            return .failure
         }
     }
-
-    private static func drawStatusDot(in rect: NSRect, diameter: CGFloat, color: NSColor) {
-        let center = NSPoint(x: rect.maxX - 4, y: rect.minY + 4)
-        let dotRect = NSRect(
-            x: center.x - diameter / 2,
-            y: center.y - diameter / 2,
-            width: diameter,
-            height: diameter
-        )
-        let path = NSBezierPath(ovalIn: dotRect)
-        color.setFill()
-        path.fill()
-        // Hairline ring separates the dot from the icon artwork underneath.
-        NSColor.white.withAlphaComponent(0.9).setStroke()
-        path.lineWidth = 1
-        path.stroke()
-    }
 }
+
