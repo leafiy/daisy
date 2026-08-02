@@ -67,6 +67,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
     public var onboardingCompleted: Bool
     public var appLanguage: String
     public var launchAtLogin: Bool
+    public var showDockIcon: Bool
 
     public init(
         baseURL: String,
@@ -94,13 +95,15 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         targetLanguage: TargetLanguage = .auto,
         onboardingCompleted: Bool = false,
         appLanguage: String = "system",
-        launchAtLogin: Bool = false
+        launchAtLogin: Bool = false,
+        showDockIcon: Bool = true
     ) {
         self.provider = provider
         self.targetLanguage = targetLanguage
         self.onboardingCompleted = onboardingCompleted
         self.appLanguage = appLanguage
         self.launchAtLogin = launchAtLogin
+        self.showDockIcon = showDockIcon
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
@@ -160,7 +163,8 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
             provider: provider,
             targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto,
             appLanguage: "system",
-            launchAtLogin: false
+            launchAtLogin: false,
+            showDockIcon: true
         )
     }
 
@@ -226,7 +230,8 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
             targetLanguage: targetLanguage,
             onboardingCompleted: onboardingCompleted,
             appLanguage: appLanguage,
-            launchAtLogin: launchAtLogin
+            launchAtLogin: launchAtLogin,
+            showDockIcon: showDockIcon
         )
         if AppLanguage(rawValue: normalized.appLanguage) == nil {
             normalized.appLanguage = AppLanguage.system.rawValue
@@ -425,6 +430,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         case onboardingCompleted
         case appLanguage
         case launchAtLogin
+        case showDockIcon
     }
 
     public init(from decoder: Decoder) throws {
@@ -483,5 +489,6 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
         appLanguage = try container.decodeIfPresent(String.self, forKey: .appLanguage) ?? "system"
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
+        showDockIcon = try container.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? defaults.showDockIcon
     }
 }

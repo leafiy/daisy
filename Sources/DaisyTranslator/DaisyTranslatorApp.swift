@@ -140,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
         LeafiyLaunchAtLogin.setEnabled(loadedSettings.launchAtLogin)
+        LeafiyDockIcon.setVisible(loadedSettings.showDockIcon)
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
@@ -447,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try settingsStore.save(normalizedSettings)
             LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
             LeafiyLaunchAtLogin.setEnabled(normalizedSettings.launchAtLogin)
+            LeafiyDockIcon.setVisible(normalizedSettings.showDockIcon)
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()

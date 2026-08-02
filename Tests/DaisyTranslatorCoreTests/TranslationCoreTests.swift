@@ -235,6 +235,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(settings.model, "")
         XCTAssertFalse(settings.alwaysOnTop)
         XCTAssertFalse(settings.launchAtLogin)
+        XCTAssertTrue(settings.showDockIcon)
         XCTAssertEqual(ModelProvider.appleSystem.rawValue, "apple-system")
     }
 
@@ -297,21 +298,24 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertTrue(enabledMinimalMode.minimalMode)
     }
 
-    func testAppSettingsCodableDefaultsMissingLaunchAtLoginToFalseAndPreservesEnabledValue() throws {
-        let missingLaunchAtLogin = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
-        XCTAssertFalse(missingLaunchAtLogin.launchAtLogin)
+    func testAppSettingsCodableDefaultsMissingLaunchAtLoginAndDockIconAndPreservesValues() throws {
+        let missingSettings = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(missingSettings.launchAtLogin)
+        XCTAssertTrue(missingSettings.showDockIcon)
 
-        let enabledLaunchAtLogin = try JSONDecoder().decode(
+        let explicitSettings = try JSONDecoder().decode(
             AppSettings.self,
-            from: Data(#"{"launchAtLogin":true}"#.utf8)
+            from: Data(#"{"launchAtLogin":true,"showDockIcon":false}"#.utf8)
         )
-        XCTAssertTrue(enabledLaunchAtLogin.launchAtLogin)
+        XCTAssertTrue(explicitSettings.launchAtLogin)
+        XCTAssertFalse(explicitSettings.showDockIcon)
 
         let roundTripped = try JSONDecoder().decode(
             AppSettings.self,
-            from: JSONEncoder().encode(enabledLaunchAtLogin)
+            from: JSONEncoder().encode(explicitSettings)
         )
         XCTAssertTrue(roundTripped.launchAtLogin)
+        XCTAssertFalse(roundTripped.showDockIcon)
     }
 
     func testAppSettingsDecodingDefaultsMissingQuickTranslateAutoCopyToTrueAndReadsExplicitFalse() throws {

@@ -366,7 +366,8 @@ struct DaisySettingsView: View {
         SettingsScaffold {
             LeafiyGeneralPane(
                 language: appLanguageBinding,
-                launchAtLogin: settingsBinding(\.launchAtLogin)
+                launchAtLogin: settingsBinding(\.launchAtLogin),
+                dockIcon: settingsBinding(\.showDockIcon)
             ) {
                 LabeledContent(L("Shortcut")) {
                     ShortcutField(spec: shortcutBinding)
