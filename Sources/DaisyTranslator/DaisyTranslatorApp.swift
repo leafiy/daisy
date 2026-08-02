@@ -19,6 +19,22 @@ struct DaisyApp: App {
             SelfTest.run()
             Foundation.exit(0)
         }
+        if CommandLine.arguments.contains("--leafiy-doctor") {
+            let doctorBundle = LeafiyLocalization.moduleBundle(
+                package: "DaisyTranslator", target: "DaisyTranslator"
+            )
+            let leafiyUIBundle = LeafiyLocalization.moduleBundle(
+                package: "LeafiyUI", target: "LeafiyUI"
+            )
+            print(LeafiyDiagnostics.doctorReport(
+                store: LeafiySettingsStore<AppSettings>.standard(directoryName: "DaisyTranslator"),
+                probes: [
+                    (label: "app", bundle: doctorBundle, key: "Ready"),
+                    (label: "leafiy-ui", bundle: leafiyUIBundle, key: "About")
+                ]
+            ))
+            Foundation.exit(0)
+        }
     }
 
     var body: some Scene {
