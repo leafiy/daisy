@@ -36,12 +36,6 @@ struct TranslatorView: View {
 
     private var minimalMode: Bool { model.settings.minimalMode }
 
-    /// The unobtrusive idle state: the delegate flips this after a minute
-    /// without key focus in minimal mode (when the setting allows it).
-    private var isGhosted: Bool {
-        minimalMode && model.isMinimalIdleGhosted
-    }
-
     @ViewBuilder
     private var content: some View {
         if minimalMode {
@@ -101,15 +95,12 @@ struct TranslatorView: View {
                     .accessibilityLabel(L("Translation output"))
             }
         }
-        .opacity(isGhosted ? 0.7 : 1)
-        .blur(radius: isGhosted ? 2 : 0)
         .padding(LeafiyDesign.Spacing.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(minimalBackground)
+        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         // No chrome remains in minimal mode, so claim the title-bar strip
         // instead of leaving it as a blank band above the content.
         .ignoresSafeArea(.container, edges: .top)
-        .animation(.easeInOut(duration: 0.2), value: isGhosted)
     }
 
     /// Compact stand-in for the standard empty state: the full placeholder
@@ -123,17 +114,6 @@ struct TranslatorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             resultPane
-        }
-    }
-
-    /// Solid window backing normally; a frosted, behind-window blur once the
-    /// idle ghost kicks in.
-    @ViewBuilder
-    private var minimalBackground: some View {
-        if isGhosted {
-            VisualEffectBackground().ignoresSafeArea()
-        } else {
-            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
         }
     }
 
@@ -371,7 +351,7 @@ struct DaisySettingsView: View {
                     providerHint
                 }
             }
-            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 620) {
+            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 700) {
                 Section(L("Quick Translate")) {
                     Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
                     Text(L("Translate selected text and show the translation in a popup toolbar"))
@@ -406,11 +386,23 @@ struct DaisySettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Section(L("Minimal Mode")) {
-                    Toggle(L("Idle Transparency"), isOn: settingsBinding(\.minimalIdleGhostEnabled))
-                    Text(L("Fade the minimal window to frosted glass after a minute without focus"))
+                Section(L("Window")) {
+                    Toggle(L("Window Transparency"), isOn: settingsBinding(\.windowOpacityEnabled))
+                    Text(L("Make the whole window translucent in both standard and minimal mode"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if model.settings.windowOpacityEnabled {
+                        WindowOpacitySlider(
+                            title: L("Focused"),
+                            value: settingsBinding(\.focusedWindowOpacity),
+                            onPreview: { model.previewWindowOpacity?($0) }
+                        )
+                        WindowOpacitySlider(
+                            title: L("Unfocused"),
+                            value: settingsBinding(\.unfocusedWindowOpacity),
+                            onPreview: { model.previewWindowOpacity?($0) }
+                        )
+                    }
                 }
             }
             SettingsPane(L("Privacy"), systemImage: "hand.raised", height: 420) {
@@ -483,6 +475,43 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
                 model.updateSettings { $0[keyPath: keyPath] = value }
             }
         )
+    }
+}
+
+/// Opacity slider that previews live on the main window but only writes the
+/// setting when the drag ends: every write persists to disk and re-applies
+/// the whole window behaviour, which is far too heavy per drag frame.
+private struct WindowOpacitySlider: View {
+    let title: String
+    @Binding var value: Double
+    let onPreview: (Double) -> Void
+
+    @State private var draft: Double?
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: LeafiyDesign.Spacing.s) {
+                Slider(
+                    value: Binding(
+                        get: { draft ?? value },
+                        set: { next in
+                            draft = next
+                            onPreview(next)
+                        }
+                    ),
+                    in: AppSettings.windowOpacityRange,
+                    onEditingChanged: { editing in
+                        guard !editing, let settled = draft else { return }
+                        draft = nil
+                        value = settled
+                    }
+                )
+                Text(String(format: "%.0f%%", (draft ?? value) * 100))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 40, alignment: .trailing)
+            }
+        }
     }
 }
 
@@ -888,22 +917,3 @@ private enum MenuBarIconRenderer {
     }
 }
 
-/// Frosted, behind-window blur used as the minimal-mode ghost backing.
-private struct VisualEffectBackground: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .hudWindow
-    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-    }
-}

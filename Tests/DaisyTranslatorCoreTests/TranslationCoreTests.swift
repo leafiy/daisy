@@ -305,15 +305,47 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertTrue(decoded.minimalMode)
     }
 
-    func testAppSettingsDecodingDefaultsMissingMinimalIdleGhostEnabledToTrueAndReadsExplicitFalse() throws {
+    func testWindowOpacityDefaultsToDisabledAtNinetyPercent() throws {
         let missing = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
-        XCTAssertTrue(missing.minimalIdleGhostEnabled)
 
-        let disabled = try JSONDecoder().decode(
+        XCTAssertFalse(missing.windowOpacityEnabled)
+        XCTAssertEqual(missing.focusedWindowOpacity, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(missing.unfocusedWindowOpacity, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(missing.windowOpacity(focused: true), 1, accuracy: 0.0001)
+        XCTAssertEqual(missing.windowOpacity(focused: false), 1, accuracy: 0.0001)
+    }
+
+    func testWindowOpacityReportsSeparateLevelsOnceEnabled() {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.windowOpacityEnabled = true
+        settings.focusedWindowOpacity = 0.8
+        settings.unfocusedWindowOpacity = 0.3
+
+        XCTAssertEqual(settings.windowOpacity(focused: true), 0.8, accuracy: 0.0001)
+        XCTAssertEqual(settings.windowOpacity(focused: false), 0.3, accuracy: 0.0001)
+    }
+
+    func testStoredWindowOpacityIsClampedToTheSliderRange() throws {
+        let decoded = try JSONDecoder().decode(
             AppSettings.self,
-            from: Data(#"{"minimalIdleGhostEnabled":false}"#.utf8)
+            from: Data(#"{"windowOpacityEnabled":true,"focusedWindowOpacity":0.02,"unfocusedWindowOpacity":4}"#.utf8)
         )
-        XCTAssertFalse(disabled.minimalIdleGhostEnabled)
+
+        XCTAssertEqual(decoded.focusedWindowOpacity, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(decoded.unfocusedWindowOpacity, 1, accuracy: 0.0001)
+    }
+
+    func testWindowOpacityRoundTripsThroughCoding() throws {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.windowOpacityEnabled = true
+        settings.focusedWindowOpacity = 0.55
+        settings.unfocusedWindowOpacity = 0.25
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: try JSONEncoder().encode(settings))
+
+        XCTAssertTrue(decoded.windowOpacityEnabled)
+        XCTAssertEqual(decoded.focusedWindowOpacity, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(decoded.unfocusedWindowOpacity, 0.25, accuracy: 0.0001)
     }
 
     func testEnablingMinimalModeTurnsAutoCopyOn() {

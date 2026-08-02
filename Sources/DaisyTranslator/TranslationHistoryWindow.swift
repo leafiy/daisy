@@ -7,7 +7,7 @@ import LeafiyUICore
 /// Utility panel listing stored translations, opened from the menu-bar menu.
 ///
 /// A panel rather than another SwiftUI `Window` scene: the delegate's
-/// window-behavior code (minimal mode, always-on-top, the idle ghost) targets
+/// window-behavior code (minimal mode, always-on-top, transparency) targets
 /// the one non-panel window, so keeping history out of that set means it can
 /// never be mistaken for the main window.
 @MainActor

@@ -53,9 +53,12 @@ public struct AppSettings: Codable, Equatable {
     public var autoPaste: Bool
     public var alwaysOnTop: Bool
     public var minimalMode: Bool
-    /// Fade the minimal window to a frosted ghost after a minute without
-    /// key focus.
-    public var minimalIdleGhostEnabled: Bool
+    /// Window transparency, applied to the whole window in both standard and
+    /// minimal mode. Off by default; both levels are clamped to
+    /// `windowOpacityRange`.
+    public var windowOpacityEnabled: Bool
+    public var focusedWindowOpacity: Double
+    public var unfocusedWindowOpacity: Double
     public var quickTranslateEnabled: Bool
     public var quickTranslateShortcut: String
     public var quickTranslateAutoCopy: Bool
@@ -79,7 +82,9 @@ public struct AppSettings: Codable, Equatable {
         autoPaste: Bool,
         alwaysOnTop: Bool,
         minimalMode: Bool = false,
-        minimalIdleGhostEnabled: Bool = true,
+        windowOpacityEnabled: Bool = false,
+        focusedWindowOpacity: Double = AppSettings.defaultWindowOpacity,
+        unfocusedWindowOpacity: Double = AppSettings.defaultWindowOpacity,
         quickTranslateEnabled: Bool = false,
         quickTranslateShortcut: String = "Command+Shift+V",
         quickTranslateAutoCopy: Bool = true,
@@ -110,7 +115,9 @@ public struct AppSettings: Codable, Equatable {
         self.autoPaste = autoPaste
         self.alwaysOnTop = alwaysOnTop
         self.minimalMode = minimalMode
-        self.minimalIdleGhostEnabled = minimalIdleGhostEnabled
+        self.windowOpacityEnabled = windowOpacityEnabled
+        self.focusedWindowOpacity = AppSettings.clampedOpacity(focusedWindowOpacity)
+        self.unfocusedWindowOpacity = AppSettings.clampedOpacity(unfocusedWindowOpacity)
     }
 
     public static func defaults(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppSettings {
@@ -140,7 +147,9 @@ public struct AppSettings: Codable, Equatable {
             autoPaste: false,
             alwaysOnTop: false,
             minimalMode: false,
-            minimalIdleGhostEnabled: true,
+            windowOpacityEnabled: false,
+            focusedWindowOpacity: AppSettings.defaultWindowOpacity,
+            unfocusedWindowOpacity: AppSettings.defaultWindowOpacity,
             quickTranslateEnabled: false,
             quickTranslateShortcut: "Command+Shift+V",
             quickTranslateAutoCopy: true,
@@ -160,6 +169,25 @@ public struct AppSettings: Codable, Equatable {
             next.autoCopy = true
         }
         return next
+    }
+
+    /// Fully opaque is the top of the range; below `minWindowOpacity` the
+    /// window stops being usable (and unclickable chrome is hard to recover
+    /// from), so the sliders bottom out there.
+    public static let minWindowOpacity: Double = 0.1
+    public static let defaultWindowOpacity: Double = 0.9
+    public static let windowOpacityRange: ClosedRange<Double> = minWindowOpacity...1
+
+    public static func clampedOpacity(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultWindowOpacity }
+        return min(max(value, minWindowOpacity), 1)
+    }
+
+    /// The alpha the window should carry right now. Disabled means fully
+    /// opaque regardless of the stored levels.
+    public func windowOpacity(focused: Bool) -> Double {
+        guard windowOpacityEnabled else { return 1 }
+        return focused ? focusedWindowOpacity : unfocusedWindowOpacity
     }
 
     public static func defaultBaseURL(for provider: ModelProvider) -> String {
@@ -276,7 +304,9 @@ public struct AppSettings: Codable, Equatable {
         case autoPaste
         case alwaysOnTop
         case minimalMode
-        case minimalIdleGhostEnabled
+        case windowOpacityEnabled
+        case focusedWindowOpacity
+        case unfocusedWindowOpacity
         case quickTranslateEnabled
         case quickTranslateShortcut
         case quickTranslateAutoCopy
@@ -327,7 +357,13 @@ public struct AppSettings: Codable, Equatable {
         autoPaste = try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? defaults.autoPaste
         alwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? defaults.alwaysOnTop
         minimalMode = try container.decodeIfPresent(Bool.self, forKey: .minimalMode) ?? defaults.minimalMode
-        minimalIdleGhostEnabled = try container.decodeIfPresent(Bool.self, forKey: .minimalIdleGhostEnabled) ?? defaults.minimalIdleGhostEnabled
+        windowOpacityEnabled = try container.decodeIfPresent(Bool.self, forKey: .windowOpacityEnabled) ?? defaults.windowOpacityEnabled
+        focusedWindowOpacity = AppSettings.clampedOpacity(
+            try container.decodeIfPresent(Double.self, forKey: .focusedWindowOpacity) ?? defaults.focusedWindowOpacity
+        )
+        unfocusedWindowOpacity = AppSettings.clampedOpacity(
+            try container.decodeIfPresent(Double.self, forKey: .unfocusedWindowOpacity) ?? defaults.unfocusedWindowOpacity
+        )
         quickTranslateEnabled = try container.decodeIfPresent(Bool.self, forKey: .quickTranslateEnabled) ?? defaults.quickTranslateEnabled
         targetLanguage = try container.decodeIfPresent(TargetLanguage.self, forKey: .targetLanguage) ?? defaults.targetLanguage
         quickTranslateShortcut = try container.decodeIfPresent(String.self, forKey: .quickTranslateShortcut) ?? defaults.quickTranslateShortcut

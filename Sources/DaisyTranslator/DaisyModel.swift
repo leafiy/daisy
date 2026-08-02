@@ -11,8 +11,6 @@ final class DaisyModel: ObservableObject {
     @Published private(set) var transientStatus: TransientStatus?
     @Published var isOnboardingPresented = false
     @Published private(set) var activeTranslationCount = 0
-    /// Whether the minimal window has faded to the frosted idle ghost.
-    @Published private(set) var isMinimalIdleGhosted = false
     /// Phase of the menu-bar busy pulse, ticked by a task while translating.
     /// `MenuBarExtra` labels only re-render on published changes, so the
     /// animation must be driven from the model rather than a `TimelineView`.
@@ -34,6 +32,11 @@ final class DaisyModel: ObservableObject {
     var recordTranslation: ((String, String, AppSettings) -> Void)?
     /// Lists the models installed on the configured Ollama server.
     var fetchOllamaModels: ((AppSettings) async throws -> [String])?
+    /// Live alpha feedback while an opacity slider is dragged. Saving a
+    /// settings change is comparatively expensive (disk, keychain, hot-key
+    /// re-registration), so the drag only previews and the value is
+    /// persisted once, when the drag ends.
+    var previewWindowOpacity: ((Double) -> Void)?
 
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
@@ -84,11 +87,6 @@ final class DaisyModel: ObservableObject {
 
     func replaceSettings(_ settings: AppSettings) {
         self.settings = settings
-    }
-
-    func setMinimalIdleGhosted(_ ghosted: Bool) {
-        guard isMinimalIdleGhosted != ghosted else { return }
-        isMinimalIdleGhosted = ghosted
     }
 
     func presentOnboardingIfNeeded() {

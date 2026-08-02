@@ -80,7 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var translationBridgeHostWindow: NSWindow?
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
-    private var idleGhostTask: Task<Void, Never>?
     private var windowKeyObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -107,7 +106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
-        idleGhostTask?.cancel()
         hotKeyCenter.unregister()
     }
 
@@ -148,8 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleMainWindow(openWindow: OpenWindowAction) {
         if let window = findMainWindow(), window.isVisible {
-            cancelScheduledIdleGhost()
-            model.setMinimalIdleGhosted(false)
             window.orderOut(nil)
         } else {
             openWindow(id: "main")
@@ -168,10 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applyWindowBehavior() {
         guard let window = findMainWindow() else { return }
-        if !model.settings.minimalMode || !model.settings.minimalIdleGhostEnabled {
-            cancelScheduledIdleGhost()
-            model.setMinimalIdleGhosted(false)
-        }
+        applyWindowOpacity(to: window, focused: window.isKeyWindow)
         if model.settings.alwaysOnTop {
             window.level = .floating
             window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
@@ -208,7 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = minimal
         window.titlebarSeparatorStyle = minimal ? .none : .automatic
         window.titleVisibility = minimal ? .hidden : .visible
-        window.isOpaque = !minimal
+        // A window drawn as opaque composites its alpha unreliably, so the
+        // transparency setting also has to give up the opaque fast path.
+        window.isOpaque = !minimal && !model.settings.windowOpacityEnabled
         window.backgroundColor = minimal ? .clear : .windowBackgroundColor
         window.standardWindowButton(.closeButton)?.isHidden = minimal
         window.standardWindowButton(.miniaturizeButton)?.isHidden = minimal
@@ -249,64 +244,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let height: CGFloat = 300
     }
 
-    /// After a minute without key focus, the minimal window fades to the
-    /// frosted idle ghost (when the setting allows it); regaining key focus
-    /// clears the ghost.
+    /// Window transparency follows key focus, with a separate user-chosen
+    /// level for each state. It applies in standard and minimal mode alike.
     private func installWindowKeyObservers() {
         let center = NotificationCenter.default
-        windowKeyObservers.append(center.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let window = notification.object as? NSWindow
-            Task { @MainActor in
-                guard let self, let window, window == self.findMainWindow() else { return }
-                self.scheduleIdleGhost()
-            }
-        })
-        windowKeyObservers.append(center.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let window = notification.object as? NSWindow
-            Task { @MainActor in
-                guard let self, let window, window == self.findMainWindow() else { return }
-                self.cancelScheduledIdleGhost()
-                self.model.setMinimalIdleGhosted(false)
-            }
-        })
-    }
-
-    private enum IdleGhost {
-        static let delayNanoseconds: UInt64 = 60 * 1_000_000_000
-    }
-
-    private func scheduleIdleGhost() {
-        cancelScheduledIdleGhost()
-        guard model.settings.minimalMode,
-              model.settings.minimalIdleGhostEnabled,
-              !model.isMinimalIdleGhosted else { return }
-        idleGhostTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: IdleGhost.delayNanoseconds)
-            guard !Task.isCancelled else { return }
-            self?.applyIdleGhost()
+        for (name, focused) in [
+            (NSWindow.didBecomeKeyNotification, true),
+            (NSWindow.didResignKeyNotification, false)
+        ] {
+            windowKeyObservers.append(center.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let window = notification.object as? NSWindow
+                Task { @MainActor in
+                    guard let self, let window, window == self.findMainWindow() else { return }
+                    self.applyWindowOpacity(to: window, focused: focused)
+                }
+            })
         }
     }
 
-    private func cancelScheduledIdleGhost() {
-        idleGhostTask?.cancel()
-        idleGhostTask = nil
-    }
-
-    private func applyIdleGhost() {
-        guard model.settings.minimalMode,
-              model.settings.minimalIdleGhostEnabled,
-              let window = findMainWindow(),
-              window.isVisible,
-              !window.isKeyWindow else { return }
-        model.setMinimalIdleGhosted(true)
+    private func applyWindowOpacity(to window: NSWindow, focused: Bool) {
+        let target = model.settings.windowOpacity(focused: focused)
+        guard abs(window.alphaValue - CGFloat(target)) > 0.001 else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            window.animator().alphaValue = CGFloat(target)
+        }
     }
 
     private func configureModelCallbacks() {
@@ -336,6 +302,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.fetchOllamaModels = { [weak self] settings in
             guard let self else { return [] }
             return try await self.translationService.ollamaModels(settings: settings)
+        }
+        model.previewWindowOpacity = { [weak self] opacity in
+            // Unanimated: the alpha must track the drag frame for frame.
+            self?.findMainWindow()?.alphaValue = CGFloat(opacity)
         }
     }
 
