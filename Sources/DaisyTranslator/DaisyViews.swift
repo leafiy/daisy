@@ -440,7 +440,7 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
     }
 
     private var providerHint: some View {
-        Text(L("Apple System Translation is used by default and does not require an API key. OpenAI-compatible and Ollama can connect to your own services; DeepSeek, Google, and Baidu can use their official APIs."))
+        Text(L("Apple System Translation is used by default and does not require an API key. Ollama can use the local service or a remote address, and its installed models are detected automatically; OpenAI-compatible can connect to your own service; DeepSeek, Google, and Baidu can use their official APIs."))
             .font(.caption)
             .foregroundStyle(.secondary)
     }
@@ -498,6 +498,16 @@ struct ProviderConfigurationForm: View {
                 Text(providerTitle(provider)).tag(provider)
             }
         }
+        if model.settings.provider == .ollama {
+            ollamaFields
+        } else {
+            standardFields
+        }
+        providerLinks
+    }
+
+    @ViewBuilder
+    private var standardFields: some View {
         LabeledContent(L("Base URL")) {
             TextField(
                 providerFieldSemantics.baseURLPlaceholder,
@@ -519,7 +529,115 @@ struct ProviderConfigurationForm: View {
             )
             .disabled(!providerFieldSemantics.modelEnabled)
         }
-        providerLinks
+    }
+
+    /// Ollama needs neither an address nor a key when it runs locally, and its
+    /// installed models are discoverable — so it gets its own field set.
+    @ViewBuilder
+    private var ollamaFields: some View {
+        Picker(L("Ollama Service"), selection: Binding(
+            get: { model.settings.ollamaConnection },
+            set: { model.setOllamaConnection($0) }
+        )) {
+            Text(L("Local")).tag(OllamaConnection.local)
+            Text(L("Remote")).tag(OllamaConnection.remote)
+        }
+        .pickerStyle(.segmented)
+        if model.settings.ollamaConnection == .local {
+            Text(String(format: L("Connects to the Ollama running on this Mac (%@)"), AppSettings.localOllamaBaseURL))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            LabeledContent(L("Base URL")) {
+                TextField("http://192.168.1.10:11434", text: providerFieldBinding(\.baseURL))
+            }
+            LabeledContent(L("API Key")) {
+                SecureField(L("Optional: only for a gated Ollama"), text: providerFieldBinding(\.apiKey))
+            }
+        }
+        LabeledContent(L("Model")) {
+            HStack(spacing: LeafiyDesign.Spacing.s) {
+                ollamaModelControl
+                Button {
+                    model.refreshOllamaModels()
+                } label: {
+                    if model.ollamaModelDiscovery.isLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.ollamaModelDiscovery.isLoading)
+                .help(L("Reload installed models"))
+            }
+        }
+        // Attached to a leaf row on purpose: wrapping the whole field group in a
+        // modifier would collapse it into a single Form row.
+        ollamaDiscoveryHint
+            .onAppear {
+                model.refreshOllamaModels()
+            }
+            .onChange(of: ollamaDiscoveryKey) {
+                model.refreshOllamaModels(afterMilliseconds: 400)
+            }
+    }
+
+    /// A picker once models are known, a plain field otherwise — so an
+    /// unreachable server never blocks typing a model name by hand.
+    @ViewBuilder
+    private var ollamaModelControl: some View {
+        if ollamaModelChoices.isEmpty {
+            TextField(L("Model name"), text: providerFieldBinding(\.model))
+        } else {
+            Picker(L("Model"), selection: providerFieldBinding(\.model)) {
+                ForEach(ollamaModelChoices, id: \.self) { name in
+                    Text(name).tag(name)
+                }
+            }
+            .labelsHidden()
+        }
+    }
+
+    /// Discovered models, plus the current selection when the server does not
+    /// report it, so an existing choice is never silently dropped.
+    private var ollamaModelChoices: [String] {
+        let discovered = model.ollamaModelDiscovery.models
+        let current = model.settings.model
+        guard !current.isEmpty, !discovered.contains(current) else { return discovered }
+        return discovered + [current]
+    }
+
+    /// Re-probes whenever the target server changes, including while the
+    /// remote address is being typed.
+    private var ollamaDiscoveryKey: String {
+        "\(model.settings.ollamaConnection.rawValue)|\(model.settings.effectiveBaseURL)"
+    }
+
+    @ViewBuilder
+    private var ollamaDiscoveryHint: some View {
+        switch model.ollamaModelDiscovery {
+        case .idle:
+            Text(L("Fill in the remote Ollama address to load its models"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .loading:
+            Text(L("Loading installed models…"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case let .loaded(models) where models.isEmpty:
+            Text(L("No models installed. Pull one with “ollama pull” first."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case let .loaded(models):
+            Text(String(format: L("%ld installed models found"), models.count))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case let .failed(message):
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
     }
 
     private var providerLinks: some View {
@@ -555,6 +673,8 @@ struct ProviderConfigurationForm: View {
     }
 }
 
+/// Field behaviour for the providers that share the standard Base URL / API Key
+/// / Model layout. Ollama has its own fields, so it never reaches here.
 private struct ProviderFieldSemantics {
     let provider: ModelProvider
 
@@ -580,8 +700,10 @@ private struct ProviderFieldSemantics {
             return "https://translate.googleapis.com"
         case .baidu:
             return "https://fanyi-api.baidu.com"
-        case .ollama, .openAICompatible:
+        case .openAICompatible:
             return "https://api.example.com/v1"
+        case .ollama:
+            return AppSettings.localOllamaBaseURL
         }
     }
 

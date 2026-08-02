@@ -55,22 +55,7 @@ public struct TranslationService {
         guard settings.provider != .appleSystem else { throw TranslationError.appleSystemTranslationUnavailable }
 
         let request = try Self.makeRequest(source: source, settings: settings)
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch let error as URLError {
-            throw TranslationError.networkFailed(Self.networkErrorMessage(error, provider: settings.provider))
-        } catch {
-            throw TranslationError.networkFailed(Self.userFacingErrorMessage(error, provider: settings.provider))
-        }
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw TranslationError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = Self.errorMessage(from: data, statusCode: httpResponse.statusCode, provider: settings.provider)
-            throw TranslationError.requestFailed(status: httpResponse.statusCode, body: message)
-        }
+        let data = try await perform(request, provider: settings.provider)
 
         do {
             return try Self.decodeTranslatedText(data, settings: settings)
@@ -79,6 +64,36 @@ public struct TranslationService {
         } catch {
             throw TranslationError.invalidResponse
         }
+    }
+
+    /// Model tags installed on the configured Ollama server, sorted for a
+    /// stable picker order. Empty means the server answered but has no models.
+    public func ollamaModels(settings: AppSettings) async throws -> [String] {
+        let request = try Self.makeOllamaModelsRequest(settings: settings)
+        let data = try await perform(request, provider: .ollama)
+        return try Self.decodeOllamaModelNames(data)
+    }
+
+    /// Sends `request` and maps transport and HTTP failures onto the
+    /// provider-specific Chinese messages the UI shows verbatim.
+    private func perform(_ request: URLRequest, provider: ModelProvider) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            throw TranslationError.networkFailed(Self.networkErrorMessage(error, provider: provider))
+        } catch {
+            throw TranslationError.networkFailed(Self.userFacingErrorMessage(error, provider: provider))
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TranslationError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = Self.errorMessage(from: data, statusCode: httpResponse.statusCode, provider: provider)
+            throw TranslationError.requestFailed(status: httpResponse.statusCode, body: message)
+        }
+        return data
     }
 
     public static func makeRequest(source: String, settings: AppSettings) throws -> URLRequest {
@@ -98,13 +113,13 @@ public struct TranslationService {
 
     public static func makeOpenAICompatibleRequest(source: String, settings: AppSettings) throws -> URLRequest {
         let url = settings.provider == .deepSeek
-            ? try resolveDeepSeekChatURL(settings.baseURL)
-            : try resolveChatURL(settings.baseURL)
+            ? try resolveDeepSeekChatURL(settings.effectiveBaseURL)
+            : try resolveChatURL(settings.effectiveBaseURL)
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
+        if !trimmedAPIKey(settings).isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey(settings))", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONEncoder().encode(OpenAIChatRequest(
             model: settings.model,
@@ -118,10 +133,15 @@ public struct TranslationService {
     }
 
     public static func makeOllamaRequest(source: String, settings: AppSettings) throws -> URLRequest {
-        let url = try resolveOllamaChatURL(settings.baseURL)
+        let url = try resolveOllamaChatURL(settings.effectiveBaseURL)
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // A remote Ollama often sits behind an authenticating reverse proxy;
+        // loopback has no token to send (see `AppSettings.effectiveAPIKey`).
+        if !trimmedAPIKey(settings).isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey(settings))", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONEncoder().encode(OllamaChatRequest(
             model: settings.model,
             messages: messages(for: source, preference: settings.targetLanguage),
@@ -135,17 +155,29 @@ public struct TranslationService {
         return request
     }
 
+    public static func makeOllamaModelsRequest(settings: AppSettings) throws -> URLRequest {
+        let url = try resolveOllamaTagsURL(settings.effectiveBaseURL)
+        // Discovery runs while the user is typing an address, so it must give
+        // up long before the 60s translation timeout.
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "GET"
+        if !trimmedAPIKey(settings).isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey(settings))", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
     public static func makeGoogleTranslateRequest(source: String, settings: AppSettings) throws -> URLRequest {
         let target = googleTargetLanguage(for: source, preference: settings.targetLanguage)
         let apiKey = trimmedAPIKey(settings)
         if apiKey.isEmpty {
-            let url = try resolveGoogleFreeTranslateURL(settings.baseURL, target: target, query: source)
+            let url = try resolveGoogleFreeTranslateURL(settings.effectiveBaseURL, target: target, query: source)
             var request = URLRequest(url: url, timeoutInterval: 60)
             request.httpMethod = "GET"
             return request
         }
 
-        let url = try resolveGoogleCloudTranslateURL(settings.baseURL, apiKey: apiKey)
+        let url = try resolveGoogleCloudTranslateURL(settings.effectiveBaseURL, apiKey: apiKey)
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -164,7 +196,7 @@ public struct TranslationService {
         let apiKey = try baiduAPIKey(settings)
         let target = baiduTargetLanguage(for: source, preference: settings.targetLanguage)
 
-        let url = try resolveBaiduTranslateURL(settings.baseURL)
+        let url = try resolveBaiduTranslateURL(settings.effectiveBaseURL)
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -222,6 +254,27 @@ public struct TranslationService {
         }
 
         guard let url = URL(string: endpoint) else { throw TranslationError.missingBaseURL }
+        return url
+    }
+
+    public static func resolveOllamaTagsURL(_ baseURL: String) throws -> URL {
+        let trimmed = trimBaseURL(baseURL)
+        guard !trimmed.isEmpty else { throw TranslationError.missingBaseURL }
+
+        // Accept anything the chat resolver accepts, so a base URL that already
+        // points at /api or /api/chat still discovers models.
+        let root: String
+        if trimmed.hasSuffix("/api/chat") {
+            root = String(trimmed.dropLast("/chat".count))
+        } else if trimmed.hasSuffix("/api/tags") {
+            root = String(trimmed.dropLast("/tags".count))
+        } else if trimmed.hasSuffix("/api") {
+            root = trimmed
+        } else {
+            root = "\(trimmed)/api"
+        }
+
+        guard let url = URL(string: "\(root)/tags") else { throw TranslationError.missingBaseURL }
         return url
     }
 
@@ -327,6 +380,20 @@ public struct TranslationService {
         case .baidu:
             return try decodeBaiduTranslatedText(data)
         }
+    }
+
+    public static func decodeOllamaModelNames(_ data: Data) throws -> [String] {
+        let decoded: OllamaTagsResponse
+        do {
+            decoded = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
+        } catch {
+            throw TranslationError.invalidResponse
+        }
+        var seen = Set<String>()
+        return decoded.models
+            .map { ($0.name ?? $0.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private static func decodeGoogleTranslatedText(_ data: Data, usesCloudAPI: Bool) throws -> String {
@@ -649,7 +716,7 @@ public struct TranslationService {
     }
 
     private static func trimmedAPIKey(_ settings: AppSettings) -> String {
-        settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.effectiveAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func percentEncode(_ value: String) -> String {
@@ -711,6 +778,16 @@ struct OpenAIChatResponse: Decodable {
 
 struct OllamaChatResponse: Decodable {
     let message: ChatMessage
+}
+
+struct OllamaTagsResponse: Decodable {
+    struct Entry: Decodable {
+        /// `/api/tags` reports `name`; older builds and `/api/ps` use `model`.
+        let name: String?
+        let model: String?
+    }
+
+    let models: [Entry]
 }
 
 struct GoogleCloudTranslateRequest: Encodable {

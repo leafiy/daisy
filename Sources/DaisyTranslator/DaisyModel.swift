@@ -19,6 +19,9 @@ final class DaisyModel: ObservableObject {
     @Published private(set) var busyPulsePhase: Double = 0
     /// Corner dot on the menu-bar icon reporting the last outcome.
     @Published private(set) var menuBarDot: MenuBarDot?
+    /// Outcome of the last `/api/tags` probe against the configured Ollama
+    /// server. Drives the model picker in settings.
+    @Published private(set) var ollamaModelDiscovery: OllamaModelDiscovery = .idle
 
     var onSettingsChanged: ((AppSettings) -> Void)?
     var translateText: ((String, AppSettings) async throws -> String)?
@@ -29,12 +32,15 @@ final class DaisyModel: ObservableObject {
     /// Called with (source, translation, settings) after a translation
     /// succeeds, so the delegate can store it in the local history.
     var recordTranslation: ((String, String, AppSettings) -> Void)?
+    /// Lists the models installed on the configured Ollama server.
+    var fetchOllamaModels: ((AppSettings) async throws -> [String])?
 
     private var requestID = 0
     private var debounceTask: Task<Void, Never>?
     private var transientStatusClearTask: Task<Void, Never>?
     private var busyPulseTask: Task<Void, Never>?
     private var menuBarDotClearTask: Task<Void, Never>?
+    private var ollamaModelDiscoveryTask: Task<Void, Never>?
     private let minimumDebounceMilliseconds = 150
     private let maximumDebounceMilliseconds = 1_200
 
@@ -52,6 +58,24 @@ final class DaisyModel: ObservableObject {
         let kind: TransientStatus.Kind
         /// True for the first beat after appearing; drawn slightly oversized.
         let isPopped: Bool
+    }
+
+    enum OllamaModelDiscovery: Equatable {
+        /// Ollama is not the active provider, or a remote address is missing.
+        case idle
+        case loading
+        case loaded([String])
+        /// A user-facing message from `TranslationService`.
+        case failed(String)
+
+        var models: [String] {
+            if case let .loaded(models) = self { return models }
+            return []
+        }
+
+        var isLoading: Bool {
+            self == .loading
+        }
     }
 
     var isTranslating: Bool {
@@ -91,6 +115,9 @@ final class DaisyModel: ObservableObject {
             next.apiKey = configuration.apiKey
             next.model = configuration.model
         }
+        if provider != .ollama {
+            ollamaModelDiscovery = .idle
+        }
     }
 
     func setProviderField(_ keyPath: WritableKeyPath<ProviderConfiguration, String>, to value: String) {
@@ -105,6 +132,48 @@ final class DaisyModel: ObservableObject {
             next.apiKey = configuration.apiKey
             next.model = configuration.model
             next.providerConfigurations[next.provider.rawValue] = configuration
+        }
+    }
+
+    func setOllamaConnection(_ connection: OllamaConnection) {
+        guard connection != settings.ollamaConnection else { return }
+        updateSettings { $0.ollamaConnection = connection }
+    }
+
+    /// Probes the configured Ollama server for installed models, replacing any
+    /// probe still in flight. Pass a delay when reacting to typing so a remote
+    /// address does not fire one request per keystroke.
+    func refreshOllamaModels(afterMilliseconds delay: Int = 0) {
+        ollamaModelDiscoveryTask?.cancel()
+        let requestSettings = settings
+        guard requestSettings.provider == .ollama,
+              !requestSettings.effectiveBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let fetchOllamaModels else {
+            ollamaModelDiscovery = .idle
+            return
+        }
+
+        ollamaModelDiscoveryTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.ollamaModelDiscovery = .loading
+            do {
+                let models = try await fetchOllamaModels(requestSettings)
+                guard !Task.isCancelled, self.settings.provider == .ollama else { return }
+                self.ollamaModelDiscovery = .loaded(models)
+                // Nothing chosen yet: adopt the first installed model so the
+                // picker never starts on an empty selection.
+                if self.settings.model.isEmpty, let first = models.first {
+                    self.setProviderField(\.model, to: first)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.ollamaModelDiscovery = .failed(
+                    TranslationService.userFacingErrorMessage(error, provider: .ollama)
+                )
+            }
         }
     }
 

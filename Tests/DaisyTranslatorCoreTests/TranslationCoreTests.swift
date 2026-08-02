@@ -546,6 +546,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "http://localhost:11434/api/chat")
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        // A local connection has no auth surface, so a stale key is not sent.
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
 
         let body = try XCTUnwrap(request.httpBody)
@@ -564,6 +565,160 @@ final class TranslationCoreTests: XCTestCase {
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
         assertTranslationMessages(messages, expectedContent: chineseToEnglishPrompt(source: "你好"))
+    }
+
+    func testOllamaLocalConnectionPinsLoopbackAndIgnoresStoredRemoteAddress() throws {
+        var settings = makeOllamaSettings(connection: .local, apiKey: "proxy-token")
+        settings.baseURL = "https://ollama.example.test:8443"
+
+        let request = try TranslationService.makeRequest(source: "Hello", settings: settings)
+
+        XCTAssertEqual(request.url?.absoluteString, "http://localhost:11434/api/chat")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testOllamaRemoteConnectionUsesConfiguredAddressAndBearerToken() throws {
+        var settings = makeOllamaSettings(connection: .remote, apiKey: " proxy-token ")
+        settings.baseURL = "https://ollama.example.test:8443/"
+
+        let request = try TranslationService.makeRequest(source: "Hello", settings: settings)
+
+        XCTAssertEqual(request.url?.absoluteString, "https://ollama.example.test:8443/api/chat")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer proxy-token")
+    }
+
+    func testRemoteOllamaWithoutAddressReportsMissingBaseURL() {
+        let settings = makeOllamaSettings(connection: .remote)
+
+        XCTAssertThrowsError(try TranslationService.makeRequest(source: "Hello", settings: settings)) { error in
+            XCTAssertEqual(error as? TranslationError, .missingBaseURL)
+        }
+    }
+
+    func testResolveOllamaTagsURLNormalizesBaseURLs() throws {
+        let cases: [(name: String, baseURL: String, expected: String)] = [
+            (
+                name: "bare host appends the tags endpoint",
+                baseURL: " http://localhost:11434/ ",
+                expected: "http://localhost:11434/api/tags"
+            ),
+            (
+                name: "api root appends only the tags segment",
+                baseURL: "http://box.lan:11434/api",
+                expected: "http://box.lan:11434/api/tags"
+            ),
+            (
+                name: "a chat endpoint is rewritten to tags",
+                baseURL: "http://box.lan:11434/api/chat",
+                expected: "http://box.lan:11434/api/tags"
+            ),
+            (
+                name: "an existing tags endpoint is preserved",
+                baseURL: "http://box.lan:11434/api/tags",
+                expected: "http://box.lan:11434/api/tags"
+            )
+        ]
+
+        for testCase in cases {
+            let url = try TranslationService.resolveOllamaTagsURL(testCase.baseURL)
+
+            XCTAssertEqual(url.absoluteString, testCase.expected, testCase.name)
+        }
+    }
+
+    func testMakeOllamaModelsRequestIsAnAuthenticatedGET() throws {
+        var settings = makeOllamaSettings(connection: .remote, apiKey: "proxy-token")
+        settings.baseURL = "http://box.lan:11434"
+
+        let request = try TranslationService.makeOllamaModelsRequest(settings: settings)
+
+        XCTAssertEqual(request.url?.absoluteString, "http://box.lan:11434/api/tags")
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertNil(request.httpBody)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer proxy-token")
+    }
+
+    func testDecodeOllamaModelNamesSortsDeduplicatesAndDropsBlanks() throws {
+        let payload = #"""
+        {"models":[
+          {"name":"qwen2.5:latest"},
+          {"name":"  "},
+          {"model":"llama3.2:3b"},
+          {"name":"qwen2.5:latest"},
+          {"name":" Gemma3:4b "}
+        ]}
+        """#
+
+        let names = try TranslationService.decodeOllamaModelNames(Data(payload.utf8))
+
+        XCTAssertEqual(names, ["Gemma3:4b", "llama3.2:3b", "qwen2.5:latest"])
+    }
+
+    func testDecodeOllamaModelNamesRejectsMalformedPayload() {
+        XCTAssertThrowsError(try TranslationService.decodeOllamaModelNames(Data("not json".utf8))) { error in
+            XCTAssertEqual(error as? TranslationError, .invalidResponse)
+        }
+    }
+
+    func testOllamaModelsReportsAnUnreachableServerWithAReadableMessage() async throws {
+        let service = makeMockedTranslationService(body: "", statusCode: 500)
+
+        do {
+            _ = try await service.ollamaModels(settings: makeOllamaSettings(connection: .local))
+            XCTFail("Expected a failure")
+        } catch {
+            XCTAssertEqual(
+                error as? TranslationError,
+                .requestFailed(status: 500, body: "Ollama 本地服务返回错误，请检查服务状态和模型日志")
+            )
+        }
+    }
+
+    func testOllamaModelsListsInstalledModels() async throws {
+        let service = makeMockedTranslationService(body: #"{"models":[{"name":"qwen2.5:latest"},{"name":"llama3.2:3b"}]}"#)
+
+        let names = try await service.ollamaModels(settings: makeOllamaSettings(connection: .local))
+
+        XCTAssertEqual(names, ["llama3.2:3b", "qwen2.5:latest"])
+    }
+
+    func testDecodingSettingsWithoutConnectionModeClassifiesTheStoredOllamaAddress() throws {
+        let cases: [(name: String, storedBaseURL: String, expected: OllamaConnection)] = [
+            (name: "the historical loopback default stays local", storedBaseURL: "http://localhost:11434", expected: .local),
+            (name: "a loopback IP stays local", storedBaseURL: "http://127.0.0.1:11434", expected: .local),
+            (name: "an empty address stays local", storedBaseURL: "", expected: .local),
+            (name: "a LAN host becomes remote", storedBaseURL: "http://192.168.1.10:11434", expected: .remote)
+        ]
+
+        for testCase in cases {
+            let json = """
+            {"provider":"ollama","baseURL":"\(testCase.storedBaseURL)","apiKey":"","model":"qwen2.5",
+             "providerConfigurations":{"ollama":{"baseURL":"\(testCase.storedBaseURL)","apiKey":"","model":"qwen2.5"}}}
+            """
+
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+            XCTAssertEqual(decoded.ollamaConnection, testCase.expected, testCase.name)
+        }
+    }
+
+    func testDecodingSettingsPrefersAnExplicitConnectionModeOverTheStoredAddress() throws {
+        let json = #"""
+        {"provider":"ollama","ollamaConnection":"remote","baseURL":"http://localhost:11434","apiKey":"","model":"qwen2.5"}
+        """#
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.ollamaConnection, .remote)
+        XCTAssertEqual(decoded.effectiveBaseURL, "http://localhost:11434")
+    }
+
+    func testEncodedSettingsRoundTripTheConnectionMode() throws {
+        let settings = makeOllamaSettings(connection: .remote, apiKey: "proxy-token")
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+
+        XCTAssertEqual(decoded.ollamaConnection, .remote)
     }
 
     func testMakeRequestOmitsAuthorizationHeaderWhenAPIKeyIsBlank() throws {
@@ -937,6 +1092,19 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(url.path, "/translate_a/single")
         XCTAssertEqual(try googleQueryItems(in: url)["client"], "gtx")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    private func makeOllamaSettings(
+        connection: OllamaConnection,
+        apiKey: String = ""
+    ) -> AppSettings {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.provider = .ollama
+        settings.ollamaConnection = connection
+        settings.baseURL = AppSettings.defaultBaseURL(for: .ollama)
+        settings.apiKey = apiKey
+        settings.model = "qwen2.5"
+        return settings
     }
 
     private func makeBaiduSettings(

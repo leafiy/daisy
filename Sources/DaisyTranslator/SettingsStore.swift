@@ -119,6 +119,7 @@ final class SettingsStore {
             apiKey: activeConfiguration.apiKey,
             model: activeConfiguration.model.isEmpty ? providerDefaultModel : activeConfiguration.model,
             providerConfigurations: providerConfigurations,
+            ollamaConnection: stored.ollamaConnection,
             temperature: stored.temperature == 0 ? defaults.temperature : stored.temperature,
             topP: stored.topP == 0 ? defaults.topP : stored.topP,
             maxTokens: stored.maxTokens == 0 ? defaults.maxTokens : stored.maxTokens,

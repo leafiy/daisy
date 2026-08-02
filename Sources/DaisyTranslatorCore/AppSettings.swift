@@ -9,6 +9,13 @@ public enum ModelProvider: String, Codable, CaseIterable, Equatable, Sendable {
     case baidu
 }
 
+/// Where the Ollama server lives. Local is a fixed loopback endpoint, so the
+/// address field only exists for `remote`.
+public enum OllamaConnection: String, Codable, CaseIterable, Equatable, Sendable {
+    case local
+    case remote
+}
+
 public enum TargetLanguage: String, Codable, CaseIterable, Equatable, Sendable {
     case auto
     case english
@@ -33,6 +40,9 @@ public struct AppSettings: Codable, Equatable {
     public var apiKey: String
     public var model: String
     public var providerConfigurations: [String: ProviderConfiguration]
+    /// Only meaningful for `.ollama`: local pins the endpoint to loopback,
+    /// remote uses the configured `baseURL`.
+    public var ollamaConnection: OllamaConnection
     public var temperature: Double
     public var topP: Double
     public var maxTokens: Int
@@ -58,6 +68,7 @@ public struct AppSettings: Codable, Equatable {
         apiKey: String,
         model: String,
         providerConfigurations: [String: ProviderConfiguration] = [:],
+        ollamaConnection: OllamaConnection = .local,
         temperature: Double,
         topP: Double,
         maxTokens: Int,
@@ -85,6 +96,7 @@ public struct AppSettings: Codable, Equatable {
         self.apiKey = apiKey
         self.model = model
         self.providerConfigurations = providerConfigurations
+        self.ollamaConnection = ollamaConnection
         self.quickTranslateEnabled = quickTranslateEnabled
         self.quickTranslateShortcut = quickTranslateShortcut
         self.quickTranslateAutoCopy = quickTranslateAutoCopy
@@ -109,11 +121,15 @@ public struct AppSettings: Codable, Equatable {
             apiKey: environment["TT_API_KEY"] ?? "",
             model: environment["TT_MODEL"] ?? defaultModel(for: provider)
         )
+        let ollamaBaseURL = provider == .ollama
+            ? (environment["TT_BASE_URL"] ?? defaultBaseURL(for: .ollama))
+            : defaultBaseURL(for: .ollama)
         return AppSettings(
             baseURL: environment["TT_BASE_URL"] ?? defaultBaseURL(for: provider),
             apiKey: environment["TT_API_KEY"] ?? "",
             model: environment["TT_MODEL"] ?? defaultModel(for: provider),
             providerConfigurations: providerConfigurations,
+            ollamaConnection: inferredOllamaConnection(baseURL: ollamaBaseURL),
             temperature: Double(environment["TT_TEMPERATURE"] ?? "") ?? 0.4,
             topP: Double(environment["TT_TOP_P"] ?? "") ?? 0.8,
             maxTokens: Int(environment["TT_MAX_TOKENS"] ?? "") ?? 8192,
@@ -157,7 +173,9 @@ public struct AppSettings: Codable, Equatable {
             return ""
             #endif
         case .ollama:
-            return "http://localhost:11434"
+            // `baseURL` holds the *remote* Ollama address only; the local
+            // connection is pinned to `localOllamaBaseURL`.
+            return ""
         case .deepSeek:
             return "https://api.deepseek.com"
         case .google:
@@ -165,6 +183,33 @@ public struct AppSettings: Codable, Equatable {
         case .baidu:
             return "https://fanyi-api.baidu.com"
         }
+    }
+
+    /// The loopback endpoint used whenever `ollamaConnection` is `.local`.
+    public static let localOllamaBaseURL = "http://localhost:11434"
+
+    /// Classifies a stored Ollama address, used to migrate settings written
+    /// before the connection mode existed.
+    public static func inferredOllamaConnection(baseURL: String) -> OllamaConnection {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let host = URLComponents(string: trimmed)?.host?.lowercased() else { return .local }
+        let loopbackHosts: Set<String> = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]
+        return loopbackHosts.contains(host) ? .local : .remote
+    }
+
+    /// The address requests actually go to. Local Ollama ignores `baseURL` so
+    /// switching back to remote keeps the address the user typed.
+    public var effectiveBaseURL: String {
+        guard provider == .ollama, ollamaConnection == .local else { return baseURL }
+        return AppSettings.localOllamaBaseURL
+    }
+
+    /// The bearer token requests actually carry. A loopback Ollama has no auth
+    /// surface, so a token left over from a remote host is never sent to it.
+    public var effectiveAPIKey: String {
+        guard provider == .ollama, ollamaConnection == .local else { return apiKey }
+        return ""
     }
 
     public static func defaultModel(for provider: ModelProvider) -> String {
@@ -178,7 +223,9 @@ public struct AppSettings: Codable, Equatable {
             return ""
             #endif
         case .ollama:
-            return "qwen2.5"
+            // Discovered from `/api/tags`, so there is nothing sensible to
+            // guess before the server has been reached.
+            return ""
         case .deepSeek:
             return "deepseek-v4-flash"
         case .google, .baidu:
@@ -218,6 +265,7 @@ public struct AppSettings: Codable, Equatable {
         case apiKey
         case model
         case providerConfigurations
+        case ollamaConnection
         case temperature
         case topP
         case maxTokens
@@ -256,6 +304,19 @@ public struct AppSettings: Codable, Equatable {
             )
         }
         providerConfigurations = decodedProviderConfigurations
+        // Settings written before the connection mode existed stored the local
+        // endpoint in `baseURL`; classify that address instead of forcing
+        // remote users back onto loopback.
+        if let decodedOllamaConnection = try container.decodeIfPresent(
+            OllamaConnection.self,
+            forKey: .ollamaConnection
+        ) {
+            ollamaConnection = decodedOllamaConnection
+        } else {
+            ollamaConnection = AppSettings.inferredOllamaConnection(
+                baseURL: decodedProviderConfigurations[ModelProvider.ollama.rawValue]?.baseURL ?? ""
+            )
+        }
         temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? defaults.temperature
         topP = try container.decodeIfPresent(Double.self, forKey: .topP) ?? defaults.topP
         maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens) ?? defaults.maxTokens

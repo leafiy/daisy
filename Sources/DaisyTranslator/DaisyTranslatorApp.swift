@@ -333,6 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.recordTranslation = { [weak self] source, translated, settings in
             self?.history.record(sourceText: source, translatedText: translated, settings: settings)
         }
+        model.fetchOllamaModels = { [weak self] settings in
+            guard let self else { return [] }
+            return try await self.translationService.ollamaModels(settings: settings)
+        }
     }
 
     private func saveSettings(_ nextSettings: AppSettings) {
@@ -384,6 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             oldSettings.baseURL != newSettings.baseURL ||
             oldSettings.apiKey != newSettings.apiKey ||
             oldSettings.model != newSettings.model ||
+            oldSettings.ollamaConnection != newSettings.ollamaConnection ||
             oldSettings.targetLanguage != newSettings.targetLanguage
     }
 
@@ -911,6 +916,13 @@ enum SelfTest {
             guard googleURL.absoluteString == "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=hi" else { throw SelfTestError.urlResolution }
             let baiduURL = try TranslationService.resolveBaiduTranslateURL("https://fanyi-api.baidu.com/")
             guard baiduURL.absoluteString == "https://fanyi-api.baidu.com/ait/api/aiTextTranslate" else { throw SelfTestError.urlResolution }
+            var localOllama = AppSettings.defaults(environment: ["TT_PROVIDER": ModelProvider.ollama.rawValue])
+            localOllama.baseURL = "https://ollama.example.test"
+            let ollamaChatURL = try TranslationService.resolveOllamaChatURL(localOllama.effectiveBaseURL)
+            guard localOllama.ollamaConnection == .local,
+                  ollamaChatURL.absoluteString == "http://localhost:11434/api/chat" else { throw SelfTestError.urlResolution }
+            let ollamaTagsURL = try TranslationService.resolveOllamaTagsURL("http://box.lan:11434/api/chat")
+            guard ollamaTagsURL.absoluteString == "http://box.lan:11434/api/tags" else { throw SelfTestError.urlResolution }
             guard TranslationService.baiduSignature(appID: "2015063000000001", query: "apple", salt: "1435660288", secret: "12345678") == "f89f9594663708c1605f3d736d01d2d4" else { throw SelfTestError.urlResolution }
             guard let icon = NSImage.daisyAppIcon(),
                   let representation = icon.representations.first,
