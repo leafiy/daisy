@@ -190,6 +190,24 @@ public struct AppSettings: Codable, Equatable {
         return focused ? focusedWindowOpacity : unfocusedWindowOpacity
     }
 
+    /// A translucent window that shows a razor-sharp desktop through it is
+    /// unreadable, so transparency drags a frosted backdrop along with it.
+    /// The strength is derived, never configured: none at fully opaque,
+    /// rising to `maxWindowBlur` at `minWindowOpacity`. It stops short of 1
+    /// so the window keeps some of its own colour at every level.
+    public static let maxWindowBlur: Double = 0.8
+
+    public static func windowBlur(forOpacity opacity: Double) -> Double {
+        let transparency = (1 - clampedOpacity(opacity)) / (1 - minWindowOpacity)
+        return maxWindowBlur * transparency
+    }
+
+    /// Blur strength that pairs with `windowOpacity(focused:)`; zero while
+    /// transparency is off, since the window is then fully opaque.
+    public func windowBlurIntensity(focused: Bool) -> Double {
+        AppSettings.windowBlur(forOpacity: windowOpacity(focused: focused))
+    }
+
     public static func defaultBaseURL(for provider: ModelProvider) -> String {
         switch provider {
         case .appleSystem:

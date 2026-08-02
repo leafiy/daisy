@@ -97,7 +97,14 @@ struct TranslatorView: View {
         }
         .padding(LeafiyDesign.Spacing.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+        // The frosted backdrop lives behind the hosting view, so minimal
+        // mode's own fill has to thin out by the blur strength; at full
+        // coverage it would paint straight over the blur.
+        .background(
+            Color(nsColor: .windowBackgroundColor)
+                .opacity(1 - model.windowBlurIntensity)
+                .ignoresSafeArea()
+        )
         // No chrome remains in minimal mode, so claim the title-bar strip
         // instead of leaving it as a blank band above the content.
         .ignoresSafeArea(.container, edges: .top)
@@ -402,6 +409,9 @@ struct DaisySettingsView: View {
                             value: settingsBinding(\.unfocusedWindowOpacity),
                             onPreview: { model.previewWindowOpacity?($0) }
                         )
+                        Text(L("Transparency automatically blurs the background behind the window, more so the more transparent it is"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

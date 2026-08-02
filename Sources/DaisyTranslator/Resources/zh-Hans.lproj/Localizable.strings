@@ -120,6 +120,7 @@
 "Translation output" = "译文输出框";
 "Translation service is not ready" = "翻译服务未就绪";
 "Translation" = "译文";
+"Transparency automatically blurs the background behind the window, more so the more transparent it is" = "半透明时会自动为窗口背景加上模糊，越透明模糊越明显";
 "Type" = "类型";
 "Unfocused" = "失焦时";
 "Watch Clipboard" = "监听剪贴板";

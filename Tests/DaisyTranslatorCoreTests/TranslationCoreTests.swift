@@ -348,6 +348,29 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(decoded.unfocusedWindowOpacity, 0.25, accuracy: 0.0001)
     }
 
+    func testWindowBlurIsOffWhileTransparencyIsDisabled() {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.focusedWindowOpacity = 0.3
+        settings.unfocusedWindowOpacity = 0.3
+
+        XCTAssertEqual(settings.windowBlurIntensity(focused: true), 0, accuracy: 0.0001)
+        XCTAssertEqual(settings.windowBlurIntensity(focused: false), 0, accuracy: 0.0001)
+    }
+
+    func testWindowBlurTracksTransparencyUpToItsCeiling() {
+        var settings = AppSettings.defaults(environment: [:])
+        settings.windowOpacityEnabled = true
+        settings.focusedWindowOpacity = 0.9
+        settings.unfocusedWindowOpacity = AppSettings.minWindowOpacity
+
+        // A barely translucent window gets a hint of blur; the most
+        // transparent level gets the ceiling and never more.
+        XCTAssertEqual(settings.windowBlurIntensity(focused: true), 0.0889, accuracy: 0.0001)
+        XCTAssertEqual(settings.windowBlurIntensity(focused: false), AppSettings.maxWindowBlur, accuracy: 0.0001)
+        XCTAssertEqual(AppSettings.windowBlur(forOpacity: 1), 0, accuracy: 0.0001)
+        XCTAssertEqual(AppSettings.windowBlur(forOpacity: -3), AppSettings.maxWindowBlur, accuracy: 0.0001)
+    }
+
     func testEnablingMinimalModeTurnsAutoCopyOn() {
         var previous = AppSettings.defaults(environment: [:])
         previous.autoCopy = false

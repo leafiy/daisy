@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
     private var windowKeyObservers: [NSObjectProtocol] = []
+    private var windowBackdrop: NSVisualEffectView?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SoftwareUpdateController.shared.startAutomaticCheck()
@@ -267,12 +268,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyWindowOpacity(to window: NSWindow, focused: Bool) {
+        applyWindowBlur(
+            to: window,
+            intensity: model.settings.windowBlurIntensity(focused: focused),
+            animated: true
+        )
         let target = model.settings.windowOpacity(focused: focused)
         guard abs(window.alphaValue - CGFloat(target)) > 0.001 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             window.animator().alphaValue = CGFloat(target)
         }
+    }
+
+    /// Transparency alone would show a razor-sharp desktop through the
+    /// window, so a frosted backdrop fades in behind the content as the
+    /// window gets more see-through. A visual effect view has no intensity
+    /// knob: its own alpha is the strength, blending the blurred desktop
+    /// with the window's ordinary background rather than replacing it.
+    private func applyWindowBlur(to window: NSWindow, intensity: Double, animated: Bool) {
+        model.setWindowBlurIntensity(intensity)
+        guard let backdrop = ensureWindowBackdrop(in: window) else { return }
+        let target = CGFloat(intensity)
+        let off = target <= 0.001
+        backdrop.isHidden = off
+        // An inactive effect view stops sampling the desktop, so an opaque
+        // window pays nothing for the disabled feature.
+        backdrop.state = off ? .inactive : .active
+        guard abs(backdrop.alphaValue - target) > 0.001 else { return }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                backdrop.animator().alphaValue = target
+            }
+        } else {
+            backdrop.alphaValue = target
+        }
+    }
+
+    /// The backdrop is the first subview of the hosting view, so every
+    /// SwiftUI layer draws over it. SwiftUI replaces the content view on
+    /// some rebuilds, hence the re-parent check rather than a one-shot
+    /// install.
+    private func ensureWindowBackdrop(in window: NSWindow) -> NSVisualEffectView? {
+        guard let content = window.contentView else { return nil }
+        if let backdrop = windowBackdrop, backdrop.superview == content { return backdrop }
+        windowBackdrop?.removeFromSuperview()
+        let backdrop = NSVisualEffectView(frame: content.bounds)
+        backdrop.material = .underWindowBackground
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .inactive
+        backdrop.isEmphasized = false
+        backdrop.alphaValue = 0
+        backdrop.isHidden = true
+        backdrop.autoresizingMask = [.width, .height]
+        content.addSubview(backdrop, positioned: .below, relativeTo: nil)
+        windowBackdrop = backdrop
+        return backdrop
     }
 
     private func configureModelCallbacks() {
@@ -305,7 +357,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.previewWindowOpacity = { [weak self] opacity in
             // Unanimated: the alpha must track the drag frame for frame.
-            self?.findMainWindow()?.alphaValue = CGFloat(opacity)
+            guard let self, let window = self.findMainWindow() else { return }
+            window.alphaValue = CGFloat(opacity)
+            self.applyWindowBlur(
+                to: window,
+                intensity: AppSettings.windowBlur(forOpacity: opacity),
+                animated: false
+            )
         }
     }
 

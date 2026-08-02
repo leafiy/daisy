@@ -20,6 +20,11 @@ final class DaisyModel: ObservableObject {
     /// Outcome of the last `/api/tags` probe against the configured Ollama
     /// server. Drives the model picker in settings.
     @Published private(set) var ollamaModelDiscovery: OllamaModelDiscovery = .idle
+    /// Strength of the frosted backdrop currently applied to the main
+    /// window, derived from the transparency level by the app delegate.
+    /// Mirrored here so minimal mode, which paints its own background, can
+    /// step aside far enough to let the backdrop through.
+    @Published private(set) var windowBlurIntensity: Double = 0
 
     var onSettingsChanged: ((AppSettings) -> Void)?
     var translateText: ((String, AppSettings) async throws -> String)?
@@ -87,6 +92,11 @@ final class DaisyModel: ObservableObject {
 
     func replaceSettings(_ settings: AppSettings) {
         self.settings = settings
+    }
+
+    func setWindowBlurIntensity(_ intensity: Double) {
+        guard abs(windowBlurIntensity - intensity) > 0.001 else { return }
+        windowBlurIntensity = intensity
     }
 
     func presentOnboardingIfNeeded() {
