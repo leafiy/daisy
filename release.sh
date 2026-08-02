@@ -52,6 +52,20 @@ validate_version() {
     }
 }
 
+published_tag_commit() { # $1 = tag
+    tag="$1"
+    if git rev-parse -q --verify "$tag^{}" >/dev/null 2>&1; then
+        git rev-list -n 1 "$tag"
+        return
+    fi
+    remote="${GITHUB_REMOTE:-github}"
+    git remote get-url "$remote" >/dev/null 2>&1 || return 1
+    commit=$(git ls-remote "$remote" "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')
+    [ -n "$commit" ] || commit=$(git ls-remote "$remote" "refs/tags/$tag" | awk 'NR == 1 { print $1 }')
+    [ -n "$commit" ] || return 1
+    printf '%s\n' "$commit"
+}
+
 if [ "${1:-}" = "--prepare" ]; then
     ensure_clean_tree
     if [ "${2:-}" ]; then
@@ -78,13 +92,33 @@ fi
 if [ -n "$(git status --porcelain)" ]; then
     echo "warning: packaging the current working tree, including uncommitted changes"
 fi
-VERSION_NUMBER="${1#v}"
+REQUESTED_VERSION="${1:-}"
+VERSION_NUMBER="${REQUESTED_VERSION#v}"
 [ -n "$VERSION_NUMBER" ] || VERSION_NUMBER="$CURRENT_VERSION"
 validate_version "$VERSION_NUMBER"
 printf '%s\n' "$CURRENT_BUILD" | grep -Eq '^[0-9]+$' || {
     echo "error: CFBundleVersion must be numeric (got '$CURRENT_BUILD')"
     exit 1
 }
+PUBLISHED_COMMIT=$(published_tag_commit "v$VERSION_NUMBER" || true)
+if [ -n "$PUBLISHED_COMMIT" ] && {
+    [ "$(git rev-parse HEAD)" != "$PUBLISHED_COMMIT" ] || [ -n "$(git status --porcelain)" ]
+}; then
+    if [ -n "$REQUESTED_VERSION" ]; then
+        echo "error: v$VERSION_NUMBER is already published from commit $PUBLISHED_COMMIT"
+        echo "hint: use a new version for the changed source"
+        exit 1
+    fi
+    VERSION_NUMBER=$(increment_version "$CURRENT_VERSION") || {
+        echo "error: cannot increment patch version '$CURRENT_VERSION'"
+        exit 1
+    }
+    [ -z "$(published_tag_commit "v$VERSION_NUMBER" || true)" ] || {
+        echo "error: next version v$VERSION_NUMBER is already published"
+        exit 1
+    }
+    echo "v$CURRENT_VERSION is already published; preparing v$VERSION_NUMBER for the changed source"
+fi
 if [ "$VERSION_NUMBER" != "$CURRENT_VERSION" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NUMBER" Info.plist >/dev/null
     CURRENT_BUILD=$((CURRENT_BUILD + 1))
@@ -93,7 +127,6 @@ if [ "$VERSION_NUMBER" != "$CURRENT_VERSION" ]; then
     echo "prepared Daisy v$VERSION_NUMBER (build $CURRENT_BUILD)"
 fi
 VERSION="v$VERSION_NUMBER"
-HEAD_SHA=$(git rev-parse HEAD)
 
 GITEA_URL="${GITEA_URL:-http://192.168.52.4:5010}"
 OWNER_REPO=$(git remote get-url origin | sed -E 's#\.git$##; s#.*[:/]([^/]+/[^/]+)$#\1#')
@@ -412,37 +445,8 @@ build_dmg() { # $1 = arch
     echo "made $dmg"
 }
 
-rm -rf "$WORK_ROOT"
-mkdir -p "$WORK_ROOT" "$ARTIFACT_DIR"
-echo "== running release tests =="
-swift test -c release --scratch-path "$WORK_ROOT/swift-tests"
-arm64_dmg="$ARTIFACT_DIR/daisy-$VERSION-arm64.dmg"
-x86_dmg="$ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg"
-if [ "${REBUILD_RELEASE:-0}" != "1" ] && [ -f "$arm64_dmg" ] && [ -f "$x86_dmg" ]; then
-    echo "== reusing existing notarized $VERSION artifacts =="
-    for existing_dmg in "$arm64_dmg" "$x86_dmg"; do
-        hdiutil verify "$existing_dmg" >/dev/null
-        codesign --verify --verbose=2 "$existing_dmg"
-        spctl -a -vv -t open --context context:primary-signature "$existing_dmg"
-    done
-else
-    # App icon: compile the same AppIcon asset catalog Xcode uses.
-    compile_app_icon_assets "$APP_ICON_SOURCE" "$WORK_ROOT"
-    build_dmg arm64
-    build_dmg x86_64
-fi
-rm -rf "$WORK_ROOT"
-
-(
-    cd "$ARTIFACT_DIR"
-    shasum -a 256 \
-        "daisy-$VERSION-arm64.dmg" \
-        "daisy-$VERSION-x86_64.dmg" > SHA256SUMS
-)
-
-# Commit and push the exact source used for the release before publishing any
-# release metadata or assets. `git add` is scoped to this repository, so the
-# sibling leafiy-ui working tree can never be included.
+# Commit the exact source before testing or packaging so reused artifacts can
+# be tied to one immutable commit.
 if [ -n "$(git status --porcelain)" ]; then
     [ "$AUTO_COMMIT_RELEASE" = "1" ] || {
         echo "error: release requires a clean working tree"
@@ -453,6 +457,40 @@ if [ -n "$(git status --porcelain)" ]; then
     git commit -m "Release $VERSION"
 fi
 HEAD_SHA=$(git rev-parse HEAD)
+
+rm -rf "$WORK_ROOT"
+mkdir -p "$WORK_ROOT" "$ARTIFACT_DIR"
+echo "== running release tests =="
+swift test -c release --scratch-path "$WORK_ROOT/swift-tests"
+arm64_dmg="$ARTIFACT_DIR/daisy-$VERSION-arm64.dmg"
+x86_dmg="$ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg"
+source_commit_file="$ARTIFACT_DIR/.source-commit"
+if [ "${REBUILD_RELEASE:-0}" != "1" ] && \
+    [ -f "$arm64_dmg" ] && [ -f "$x86_dmg" ] && \
+    [ -f "$source_commit_file" ] && [ "$(cat "$source_commit_file")" = "$HEAD_SHA" ]; then
+    echo "== reusing existing notarized $VERSION artifacts from $HEAD_SHA =="
+    for existing_dmg in "$arm64_dmg" "$x86_dmg"; do
+        hdiutil verify "$existing_dmg" >/dev/null
+        codesign --verify --verbose=2 "$existing_dmg"
+        spctl -a -vv -t open --context context:primary-signature "$existing_dmg"
+    done
+else
+    # App icon: compile the same AppIcon asset catalog Xcode uses.
+    compile_app_icon_assets "$APP_ICON_SOURCE" "$WORK_ROOT"
+    build_dmg arm64
+    build_dmg x86_64
+    printf '%s\n' "$HEAD_SHA" > "$source_commit_file"
+fi
+rm -rf "$WORK_ROOT"
+
+(
+    cd "$ARTIFACT_DIR"
+    shasum -a 256 \
+        "daisy-$VERSION-arm64.dmg" \
+        "daisy-$VERSION-x86_64.dmg" > SHA256SUMS
+)
+
+# Publish the exact source commit used to build or validate the artifacts.
 git push origin HEAD:main
 REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
 [ "$HEAD_SHA" = "$REMOTE_MAIN" ] || {
