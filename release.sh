@@ -1,15 +1,19 @@
 #!/bin/sh
 # Builds two ready-to-use DMGs (Apple Silicon + Intel), publishes them on
-# leafiy.com for in-app updates, and optionally mirrors them to Gitea.
+# leafiy.com for in-app updates, pushes Daisy source to GitHub, and creates a
+# GitHub Release. The sibling leafiy-ui repository is never included.
 #
 # Usage, on a Mac with the Xcode command line tools:
 #   sh release.sh --prepare v1.2.3 # update Info.plist, then review/commit/push
-#   sh release.sh                  # test + package the committed version
-#   LEAFIY_ADMIN_PASSWORD=xxxx GITEA_TOKEN=xxxx sh release.sh # publish everywhere
-#   sh release.sh v1.2.3           # require this committed version, then package
+#   sh release.sh                  # test + package + publish the current version
+#   sh release.sh v1.2.3           # bump Info.plist/build, package, and publish
+#   GH_TOKEN=xxxx sh release.sh    # use an explicit GitHub fine-grained PAT
+#   PUBLISH_TO_LEAFIY=0 PUBLISH_TO_GITHUB=0 sh release.sh # local build only
+#   PUBLISH_TO_GITHUB=0 sh release.sh # skip GitHub source/release publishing
 #
-# LEAFIY_ADMIN_PASSWORD is the Basic Auth password printed by leafiy.com's
-# deploy script. GITEA_TOKEN is optional and mirrors the release to Gitea.
+# Publishing uses the configured SSH access to leafiy.com by default.
+# LEAFIY_ADMIN_PASSWORD can use the HTTPS admin API instead. GitHub uses the
+# existing `gh` login or GH_TOKEN; GITEA_TOKEN additionally mirrors to Gitea.
 set -eu
 cd "$(dirname "$0")"
 
@@ -71,24 +75,33 @@ if [ "${1:-}" = "--prepare" ]; then
     exit 0
 fi
 
-ensure_clean_tree
+if [ -n "$(git status --porcelain)" ]; then
+    echo "warning: packaging the current working tree, including uncommitted changes"
+fi
 VERSION_NUMBER="${1#v}"
 [ -n "$VERSION_NUMBER" ] || VERSION_NUMBER="$CURRENT_VERSION"
 validate_version "$VERSION_NUMBER"
-[ "$VERSION_NUMBER" = "$CURRENT_VERSION" ] || {
-    echo "error: requested v$VERSION_NUMBER but committed Info.plist is v$CURRENT_VERSION"
-    echo "hint: run 'sh release.sh --prepare v$VERSION_NUMBER', then review, commit, and push"
-    exit 1
-}
 printf '%s\n' "$CURRENT_BUILD" | grep -Eq '^[0-9]+$' || {
     echo "error: CFBundleVersion must be numeric (got '$CURRENT_BUILD')"
     exit 1
 }
+if [ "$VERSION_NUMBER" != "$CURRENT_VERSION" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NUMBER" Info.plist >/dev/null
+    CURRENT_BUILD=$((CURRENT_BUILD + 1))
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $CURRENT_BUILD" Info.plist >/dev/null
+    CURRENT_VERSION="$VERSION_NUMBER"
+    echo "prepared Daisy v$VERSION_NUMBER (build $CURRENT_BUILD)"
+fi
 VERSION="v$VERSION_NUMBER"
 HEAD_SHA=$(git rev-parse HEAD)
 
 GITEA_URL="${GITEA_URL:-http://192.168.52.4:5010}"
 OWNER_REPO=$(git remote get-url origin | sed -E 's#\.git$##; s#.*[:/]([^/]+/[^/]+)$#\1#')
+GITHUB_REPO="${GITHUB_REPO:-leafiy/daisy}"
+GITHUB_REMOTE="${GITHUB_REMOTE:-github}"
+GITHUB_REMOTE_URL="${GITHUB_REMOTE_URL:-git@github.com:$GITHUB_REPO.git}"
+PUBLISH_TO_GITHUB="${PUBLISH_TO_GITHUB:-1}"
+AUTO_COMMIT_RELEASE="${AUTO_COMMIT_RELEASE:-1}"
 BUILD_ROOT="${BUILD_ROOT:-"$PWD/build.noindex"}"
 WORK_ROOT="${RELEASE_WORK_ROOT:-"$BUILD_ROOT/release-work/$VERSION"}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-"$BUILD_ROOT/release/$VERSION"}"
@@ -97,27 +110,125 @@ AUTH="Authorization: token ${GITEA_TOKEN:-}"
 LEAFIY_PUBLISH_URL="${LEAFIY_PUBLISH_URL:-https://leafiy.com/admin-api}"
 LEAFIY_ADMIN_USER="${LEAFIY_ADMIN_USER:-leafiy}"
 LEAFIY_ADMIN_PASSWORD="${LEAFIY_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
-PUBLISH_TO_LEAFIY="${PUBLISH_TO_LEAFIY:-}"
-if [ -z "$PUBLISH_TO_LEAFIY" ]; then
-    if [ -n "${GITEA_TOKEN:-}" ] || [ -n "$LEAFIY_ADMIN_PASSWORD" ]; then
-        PUBLISH_TO_LEAFIY=1
-    else
-        PUBLISH_TO_LEAFIY=0
-    fi
-fi
+LEAFIY_SSH_TARGET="${LEAFIY_SSH_TARGET:-root@47.88.53.44}"
+LEAFIY_SSH_PORT="${LEAFIY_SSH_PORT:-2222}"
+LEAFIY_REMOTE_API_URL="${LEAFIY_REMOTE_API_URL:-http://127.0.0.1:8765}"
+PUBLISH_TO_LEAFIY="${PUBLISH_TO_LEAFIY:-1}"
 case "$PUBLISH_TO_LEAFIY" in
     0|1) ;;
     *) echo "error: PUBLISH_TO_LEAFIY must be 0 or 1"; exit 1 ;;
 esac
-if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
-    [ -n "$LEAFIY_ADMIN_PASSWORD" ] || {
-        echo "error: LEAFIY_ADMIN_PASSWORD is required to publish on leafiy.com"
-        echo "hint: use the Basic Auth password printed by leafiy.com's deploy script"
+case "$PUBLISH_TO_GITHUB" in
+    0|1) ;;
+    *) echo "error: PUBLISH_TO_GITHUB must be 0 or 1"; exit 1 ;;
+esac
+case "$AUTO_COMMIT_RELEASE" in
+    0|1) ;;
+    *) echo "error: AUTO_COMMIT_RELEASE must be 0 or 1"; exit 1 ;;
+esac
+
+ensure_github_remote() {
+    command -v gh >/dev/null 2>&1 || {
+        echo "error: GitHub CLI (gh) is required for GitHub Releases"
+        echo "hint: install it with 'brew install gh'"
         exit 1
     }
-    leafiy_health=$(curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" "$LEAFIY_PUBLISH_URL/health") || {
+    gh auth status >/dev/null 2>&1 || {
+        echo "error: GitHub authentication is not configured"
+        echo "hint: run 'gh auth login', or set GH_TOKEN to a fine-grained PAT with Contents: write"
+        exit 1
+    }
+    if git remote get-url "$GITHUB_REMOTE" >/dev/null 2>&1; then
+        [ "$(git remote get-url "$GITHUB_REMOTE")" = "$GITHUB_REMOTE_URL" ] || {
+            echo "error: remote '$GITHUB_REMOTE' does not point to $GITHUB_REMOTE_URL"
+            exit 1
+        }
+    else
+        git remote add "$GITHUB_REMOTE" "$GITHUB_REMOTE_URL"
+    fi
+    gh repo view "$GITHUB_REPO" >/dev/null
+    if git ls-files | grep -Eq '(^|/)leafiy-ui(/|$)'; then
+        echo "error: leafiy-ui content is tracked inside Daisy; refusing GitHub publish"
+        exit 1
+    fi
+}
+
+github_remote_is_placeholder() {
+    remote_ref="$1"
+    [ "$(git rev-list --count "$remote_ref")" = "1" ] || return 1
+    [ "$(git ls-tree -r --name-only "$remote_ref")" = "README.md" ] || return 1
+    [ "$(git show "$remote_ref:README.md")" = "# daisy" ] || return 1
+}
+
+push_github_main() {
+    remote_sha=$(git ls-remote "$GITHUB_REMOTE" refs/heads/main | awk 'NR == 1 { print $1 }')
+    if [ -z "$remote_sha" ]; then
+        git push -u "$GITHUB_REMOTE" HEAD:main
+        return
+    fi
+    git fetch "$GITHUB_REMOTE" main
+    if git merge-base --is-ancestor "$GITHUB_REMOTE/main" HEAD; then
+        git push "$GITHUB_REMOTE" HEAD:main
+    elif github_remote_is_placeholder "$GITHUB_REMOTE/main"; then
+        echo "replacing GitHub's one-file placeholder history with Daisy source..."
+        git push --force-with-lease="refs/heads/main:$remote_sha" "$GITHUB_REMOTE" HEAD:main
+    else
+        echo "error: GitHub main has independent commits; refusing to overwrite it"
+        echo "hint: reconcile $GITHUB_REMOTE/main with local main, then rerun the release"
+        exit 1
+    fi
+}
+
+leafiy_api_get() { # $1 = endpoint
+    endpoint="$1"
+    leafiy_attempt=1
+    while [ "$leafiy_attempt" -le 3 ]; do
+        if [ -n "$LEAFIY_ADMIN_PASSWORD" ]; then
+            curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" "$LEAFIY_PUBLISH_URL/$endpoint" && return 0
+        else
+            ssh -p "$LEAFIY_SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10 \
+                "$LEAFIY_SSH_TARGET" "curl -fsS '$LEAFIY_REMOTE_API_URL/$endpoint'" && return 0
+        fi
+        sleep "$leafiy_attempt"
+        leafiy_attempt=$((leafiy_attempt + 1))
+    done
+    return 1
+}
+
+leafiy_api_write() { # $1 = method, $2 = endpoint, $3 = file, $4 = content type, $5 = output
+    method="$1"
+    endpoint="$2"
+    source_file="$3"
+    content_type="$4"
+    output_file="$5"
+    leafiy_attempt=1
+    while [ "$leafiy_attempt" -le 3 ]; do
+        if [ -n "$LEAFIY_ADMIN_PASSWORD" ]; then
+            if curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
+                -X "$method" -H "Content-Type: $content_type" \
+                --data-binary "@$source_file" "$LEAFIY_PUBLISH_URL/$endpoint" \
+                -o "$output_file"; then
+                return 0
+            fi
+        else
+            content_length=$(wc -c < "$source_file" | tr -d ' ')
+            if ssh -p "$LEAFIY_SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10 \
+                "$LEAFIY_SSH_TARGET" \
+                "curl -fsS -X '$method' -H 'Content-Type: $content_type' -H 'Content-Length: $content_length' --data-binary @- '$LEAFIY_REMOTE_API_URL/$endpoint'" \
+                < "$source_file" > "$output_file"; then
+                return 0
+            fi
+        fi
+        sleep "$leafiy_attempt"
+        leafiy_attempt=$((leafiy_attempt + 1))
+    done
+    return 1
+}
+
+if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
+    leafiy_health=$(leafiy_api_get health) || {
         echo "error: cannot reach the leafiy.com release API"
-        echo "hint: deploy the current ../leafiy.com first, then retry"
+        echo "hint: set LEAFIY_ADMIN_PASSWORD, or check SSH access to $LEAFIY_SSH_TARGET:$LEAFIY_SSH_PORT"
         exit 1
     }
     printf '%s' "$leafiy_health" | /usr/bin/python3 -c 'import json, sys
@@ -131,14 +242,13 @@ if not value.get("ok") or "releases" not in value.get("capabilities", []):
     }
 fi
 
+if [ "$PUBLISH_TO_GITHUB" = "1" ]; then
+    ensure_github_remote
+fi
+
 if [ -n "${GITEA_TOKEN:-}" ]; then
     REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
     [ -n "$REMOTE_MAIN" ] || { echo "error: cannot resolve origin/main"; exit 1; }
-    [ "$HEAD_SHA" = "$REMOTE_MAIN" ] || {
-        echo "error: local HEAD does not match origin/main"
-        echo "hint: push the committed release version before publishing"
-        exit 1
-    }
     [ -z "$(git ls-remote origin "refs/tags/$VERSION")" ] || {
         echo "error: tag $VERSION already exists; never overwrite a published version"
         exit 1
@@ -179,7 +289,7 @@ if [ -z "$SIGN_IDENTITY" ]; then
     SIGN_IDENTITY="-"
     echo "warning: building ad-hoc signed DMGs because ALLOW_UNNOTARIZED=1"
 fi
-if [ -n "${GITEA_TOKEN:-}" ] && [ "$SIGN_IDENTITY" = "-" ]; then
+if { [ "$PUBLISH_TO_LEAFIY" = "1" ] || [ -n "${GITEA_TOKEN:-}" ]; } && [ "$SIGN_IDENTITY" = "-" ]; then
     echo "error: refusing to publish an ad-hoc signed DMG"
     echo "hint: publish only with a Developer ID identity and a successful notarization"
     exit 1
@@ -303,11 +413,21 @@ rm -rf "$WORK_ROOT"
 mkdir -p "$WORK_ROOT" "$ARTIFACT_DIR"
 echo "== running release tests =="
 swift test -c release --scratch-path "$WORK_ROOT/swift-tests"
-# App icon: compile the same AppIcon asset catalog Xcode uses.
-compile_app_icon_assets "$APP_ICON_SOURCE" "$WORK_ROOT"
-
-build_dmg arm64
-build_dmg x86_64
+arm64_dmg="$ARTIFACT_DIR/daisy-$VERSION-arm64.dmg"
+x86_dmg="$ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg"
+if [ "${REBUILD_RELEASE:-0}" != "1" ] && [ -f "$arm64_dmg" ] && [ -f "$x86_dmg" ]; then
+    echo "== reusing existing notarized $VERSION artifacts =="
+    for existing_dmg in "$arm64_dmg" "$x86_dmg"; do
+        hdiutil verify "$existing_dmg" >/dev/null
+        codesign --verify --verbose=2 "$existing_dmg"
+        spctl -a -vv -t open --context context:primary-signature "$existing_dmg"
+    done
+else
+    # App icon: compile the same AppIcon asset catalog Xcode uses.
+    compile_app_icon_assets "$APP_ICON_SOURCE" "$WORK_ROOT"
+    build_dmg arm64
+    build_dmg x86_64
+fi
 rm -rf "$WORK_ROOT"
 
 (
@@ -317,25 +437,49 @@ rm -rf "$WORK_ROOT"
         "daisy-$VERSION-x86_64.dmg" > SHA256SUMS
 )
 
+# Only publish source after tests, signing, notarization, and packaging have all
+# succeeded. `git add` is scoped to this repository, so the sibling leafiy-ui
+# working tree can never be included.
+if [ "$PUBLISH_TO_GITHUB" = "1" ] || [ -n "${GITEA_TOKEN:-}" ]; then
+    if [ -n "$(git status --porcelain)" ]; then
+        [ "$AUTO_COMMIT_RELEASE" = "1" ] || {
+            echo "error: source publishing requires a clean working tree"
+            echo "hint: commit the Daisy changes, or leave AUTO_COMMIT_RELEASE=1"
+            exit 1
+        }
+        git add -A -- .
+        git commit -m "Release $VERSION"
+    fi
+    HEAD_SHA=$(git rev-parse HEAD)
+fi
+if [ -n "${GITEA_TOKEN:-}" ]; then
+    git push origin HEAD:main
+    REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
+    [ "$HEAD_SHA" = "$REMOTE_MAIN" ] || {
+        echo "error: pushed release commit does not match origin/main"
+        exit 1
+    }
+fi
+if [ "$PUBLISH_TO_GITHUB" = "1" ]; then
+    push_github_main
+fi
+
 publish_leafiy_release() {
     publish_dir="$ARTIFACT_DIR/.leafiy-publish"
     rm -rf "$publish_dir"
     mkdir -p "$publish_dir"
 
     echo "== publishing $VERSION on leafiy.com =="
-    curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
-        "$LEAFIY_PUBLISH_URL/releases?app=$APP_SLUG" \
-        -o "$publish_dir/current.json"
+    leafiy_api_get "releases?app=$APP_SLUG" > "$publish_dir/current.json"
 
     for arch in arm64 x86_64; do
         asset="$ARTIFACT_DIR/daisy-$VERSION-$arch.dmg"
         echo "uploading $(basename "$asset")..."
-        curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
-            -X POST \
-            -H "Content-Type: application/x-apple-diskimage" \
-            --data-binary "@$asset" \
-            "$LEAFIY_PUBLISH_URL/release-file?app=$APP_SLUG&version=$VERSION_NUMBER&architecture=$arch" \
-            -o "$publish_dir/$arch.json" || {
+        leafiy_api_write POST \
+            "release-file?app=$APP_SLUG&version=$VERSION_NUMBER&architecture=$arch" \
+            "$asset" \
+            "application/x-apple-diskimage" \
+            "$publish_dir/$arch.json" || {
                 echo "error: leafiy.com rejected $arch release upload"
                 echo "hint: uploaded files are immutable; increase the version if this build differs"
                 exit 1
@@ -391,12 +535,11 @@ json.dump(manifest, sys.stdout, ensure_ascii=False, indent=2)
 sys.stdout.write("\n")
 PY
 
-    curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
-        -X PUT \
-        -H "Content-Type: application/json" \
-        --data-binary "@$publish_dir/manifest.json" \
-        "$LEAFIY_PUBLISH_URL/releases?app=$APP_SLUG" \
-        -o "$publish_dir/published.json" || {
+    leafiy_api_write PUT \
+        "releases?app=$APP_SLUG" \
+        "$publish_dir/manifest.json" \
+        "application/json" \
+        "$publish_dir/published.json" || {
             echo "error: leafiy.com rejected the release manifest"
             exit 1
         }
@@ -439,6 +582,74 @@ PY
 
 if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
     publish_leafiy_release
+fi
+
+publish_github_release() {
+    echo "== publishing $VERSION on GitHub =="
+    remote_tag=$(git ls-remote "$GITHUB_REMOTE" "refs/tags/$VERSION" | awk 'NR == 1 { print $1 }')
+    remote_peeled=$(git ls-remote "$GITHUB_REMOTE" "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')
+    remote_tag_commit=${remote_peeled:-$remote_tag}
+    if [ -n "$remote_tag_commit" ]; then
+        [ "$remote_tag_commit" = "$HEAD_SHA" ] || {
+            echo "error: GitHub tag $VERSION already points to another commit"
+            exit 1
+        }
+    else
+        if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            [ "$(git rev-list -n 1 "$VERSION")" = "$HEAD_SHA" ] || {
+                echo "error: local tag $VERSION already points to another commit"
+                exit 1
+            }
+        else
+            git tag -a "$VERSION" -m "Daisy $VERSION" "$HEAD_SHA"
+        fi
+        git push "$GITHUB_REMOTE" "refs/tags/$VERSION"
+    fi
+
+    github_notes="$ARTIFACT_DIR/.github-release-notes.md"
+    notes_zh=${RELEASE_NOTES_ZH:-"Daisy $VERSION_NUMBER 更新"}
+    notes_en=${RELEASE_NOTES_EN:-"Daisy $VERSION_NUMBER release"}
+    {
+        printf '## 更新\n\n%s\n\n' "$notes_zh"
+        printf '## Changes\n\n%s\n\n' "$notes_en"
+        printf 'Signed and notarized macOS downloads are attached for Apple Silicon and Intel.\n'
+    } > "$github_notes"
+
+    github_assets="$ARTIFACT_DIR/daisy-$VERSION-arm64.dmg $ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg $ARTIFACT_DIR/SHA256SUMS"
+    if gh release view "$VERSION" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
+        existing_names=$(gh release view "$VERSION" --repo "$GITHUB_REPO" --json assets --jq '.assets[].name')
+        verify_dir="$ARTIFACT_DIR/.github-verify"
+        rm -rf "$verify_dir"
+        mkdir -p "$verify_dir"
+        for github_asset in $github_assets; do
+            asset_name=$(basename "$github_asset")
+            if printf '%s\n' "$existing_names" | grep -Fx "$asset_name" >/dev/null; then
+                gh release download "$VERSION" --repo "$GITHUB_REPO" --pattern "$asset_name" --dir "$verify_dir"
+                cmp -s "$github_asset" "$verify_dir/$asset_name" || {
+                    echo "error: GitHub asset $asset_name differs from the notarized local artifact"
+                    exit 1
+                }
+            else
+                gh release upload "$VERSION" "$github_asset" --repo "$GITHUB_REPO"
+            fi
+        done
+        rm -rf "$verify_dir" "$github_notes"
+    else
+        # shellcheck disable=SC2086 # Three controlled artifact paths, none contain spaces.
+        gh release create "$VERSION" $github_assets \
+            --repo "$GITHUB_REPO" \
+            --verify-tag \
+            --latest \
+            --title "Daisy $VERSION" \
+            --notes-file "$github_notes"
+        rm -f "$github_notes"
+    fi
+    github_release_url=$(gh release view "$VERSION" --repo "$GITHUB_REPO" --json url --jq .url)
+    echo "GitHub release: $github_release_url"
+}
+
+if [ "$PUBLISH_TO_GITHUB" = "1" ]; then
+    publish_github_release
 fi
 
 if [ -z "${GITEA_TOKEN:-}" ]; then
