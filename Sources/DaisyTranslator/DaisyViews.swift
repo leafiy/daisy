@@ -849,7 +849,7 @@ struct DaisyMenuBarMenu: View {
         Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
         Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
         Text(String(format: L("Shortcut: %@"), shortcutDisplay))
-        LeafiyMenuTail()
+        LeafiyMenuTail(language: model.settings.selectedAppLanguage)
     }
 
     private var shortcutDisplay: String {
