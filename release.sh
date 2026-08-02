@@ -173,9 +173,11 @@ push_github_main() {
         echo "replacing GitHub's one-file placeholder history with Daisy source..."
         git push --force-with-lease="refs/heads/main:$remote_sha" "$GITHUB_REMOTE" HEAD:main
     else
-        echo "error: GitHub main has independent commits; refusing to overwrite it"
-        echo "hint: reconcile $GITHUB_REMOTE/main with local main, then rerun the release"
-        exit 1
+        echo "merging GitHub-only history while keeping Daisy's canonical source tree..."
+        git merge -s ours --no-edit "$GITHUB_REMOTE/main"
+        HEAD_SHA=$(git rev-parse HEAD)
+        git push origin HEAD:main
+        git push "$GITHUB_REMOTE" HEAD:main
     fi
 }
 
