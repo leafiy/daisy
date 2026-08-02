@@ -22,8 +22,10 @@ if [ "${UNIVERSAL:-0}" = "1" ]; then
 fi
 
 SCRATCH_PATH="${SCRATCH_PATH:-"${TMPDIR%/}/leafiy-swift-builds/daisy"}"
-swift build -c release $ARCH_FLAGS --scratch-path "$SCRATCH_PATH"
-BIN_DIR=$(swift build -c release $ARCH_FLAGS --scratch-path "$SCRATCH_PATH" --show-bin-path)
+# Local path dependencies can gain source files without invalidating SwiftPM's
+# cached build description. Always re-plan so LeafiyUI's source list is current.
+swift build -c release --disable-build-manifest-caching $ARCH_FLAGS --scratch-path "$SCRATCH_PATH"
+BIN_DIR=$(swift build -c release --disable-build-manifest-caching $ARCH_FLAGS --scratch-path "$SCRATCH_PATH" --show-bin-path)
 BUILD_ROOT="${BUILD_ROOT:-"$PWD/build.noindex"}"
 APP_OUTPUT_DIR="${APP_OUTPUT_DIR:-"$BUILD_ROOT/app"}"
 mkdir -p "$BUILD_ROOT"

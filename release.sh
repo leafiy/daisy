@@ -1,15 +1,15 @@
 #!/bin/sh
-# Builds two ready-to-use DMGs (Apple Silicon + Intel) and publishes a
-# release with both attached on the Gitea server.
+# Builds two ready-to-use DMGs (Apple Silicon + Intel), publishes them on
+# leafiy.com for in-app updates, and optionally mirrors them to Gitea.
 #
 # Usage, on a Mac with the Xcode command line tools:
 #   sh release.sh --prepare v1.2.3 # update Info.plist, then review/commit/push
 #   sh release.sh                  # test + package the committed version
-#   GITEA_TOKEN=xxxx sh release.sh # test + package + notarize + publish
+#   LEAFIY_ADMIN_PASSWORD=xxxx GITEA_TOKEN=xxxx sh release.sh # publish everywhere
 #   sh release.sh v1.2.3           # require this committed version, then package
 #
-# Token: Gitea web UI -> Settings -> Applications -> Generate Token
-# (repository read/write scope). Only needed for upload.
+# LEAFIY_ADMIN_PASSWORD is the Basic Auth password printed by leafiy.com's
+# deploy script. GITEA_TOKEN is optional and mirrors the release to Gitea.
 set -eu
 cd "$(dirname "$0")"
 
@@ -67,7 +67,7 @@ if [ "${1:-}" = "--prepare" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((CURRENT_BUILD + 1))" Info.plist >/dev/null
     echo "prepared Daisy v$PREPARED_VERSION (build $((CURRENT_BUILD + 1)))"
     echo "review Info.plist, commit it, push main, then run:"
-    echo "  GITEA_TOKEN=... sh release.sh v$PREPARED_VERSION"
+    echo "  LEAFIY_ADMIN_PASSWORD=... GITEA_TOKEN=... sh release.sh v$PREPARED_VERSION"
     exit 0
 fi
 
@@ -94,6 +94,42 @@ WORK_ROOT="${RELEASE_WORK_ROOT:-"$BUILD_ROOT/release-work/$VERSION"}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-"$BUILD_ROOT/release/$VERSION"}"
 API="$GITEA_URL/api/v1/repos/$OWNER_REPO"
 AUTH="Authorization: token ${GITEA_TOKEN:-}"
+LEAFIY_PUBLISH_URL="${LEAFIY_PUBLISH_URL:-https://leafiy.com/admin-api}"
+LEAFIY_ADMIN_USER="${LEAFIY_ADMIN_USER:-leafiy}"
+LEAFIY_ADMIN_PASSWORD="${LEAFIY_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
+PUBLISH_TO_LEAFIY="${PUBLISH_TO_LEAFIY:-}"
+if [ -z "$PUBLISH_TO_LEAFIY" ]; then
+    if [ -n "${GITEA_TOKEN:-}" ] || [ -n "$LEAFIY_ADMIN_PASSWORD" ]; then
+        PUBLISH_TO_LEAFIY=1
+    else
+        PUBLISH_TO_LEAFIY=0
+    fi
+fi
+case "$PUBLISH_TO_LEAFIY" in
+    0|1) ;;
+    *) echo "error: PUBLISH_TO_LEAFIY must be 0 or 1"; exit 1 ;;
+esac
+if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
+    [ -n "$LEAFIY_ADMIN_PASSWORD" ] || {
+        echo "error: LEAFIY_ADMIN_PASSWORD is required to publish on leafiy.com"
+        echo "hint: use the Basic Auth password printed by leafiy.com's deploy script"
+        exit 1
+    }
+    leafiy_health=$(curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" "$LEAFIY_PUBLISH_URL/health") || {
+        echo "error: cannot reach the leafiy.com release API"
+        echo "hint: deploy the current ../leafiy.com first, then retry"
+        exit 1
+    }
+    printf '%s' "$leafiy_health" | /usr/bin/python3 -c 'import json, sys
+value = json.load(sys.stdin)
+if not value.get("ok") or "releases" not in value.get("capabilities", []):
+    raise SystemExit(1)
+' || {
+        echo "error: leafiy.com does not expose the release publishing API"
+        echo "hint: deploy the current ../leafiy.com first, then retry"
+        exit 1
+    }
+fi
 
 if [ -n "${GITEA_TOKEN:-}" ]; then
     REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
@@ -281,8 +317,132 @@ rm -rf "$WORK_ROOT"
         "daisy-$VERSION-x86_64.dmg" > SHA256SUMS
 )
 
+publish_leafiy_release() {
+    publish_dir="$ARTIFACT_DIR/.leafiy-publish"
+    rm -rf "$publish_dir"
+    mkdir -p "$publish_dir"
+
+    echo "== publishing $VERSION on leafiy.com =="
+    curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
+        "$LEAFIY_PUBLISH_URL/releases?app=$APP_SLUG" \
+        -o "$publish_dir/current.json"
+
+    for arch in arm64 x86_64; do
+        asset="$ARTIFACT_DIR/daisy-$VERSION-$arch.dmg"
+        echo "uploading $(basename "$asset")..."
+        curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
+            -X POST \
+            -H "Content-Type: application/x-apple-diskimage" \
+            --data-binary "@$asset" \
+            "$LEAFIY_PUBLISH_URL/release-file?app=$APP_SLUG&version=$VERSION_NUMBER&architecture=$arch" \
+            -o "$publish_dir/$arch.json" || {
+                echo "error: leafiy.com rejected $arch release upload"
+                echo "hint: uploaded files are immutable; increase the version if this build differs"
+                exit 1
+            }
+    done
+
+    notes_zh=${RELEASE_NOTES_ZH:-"Daisy $VERSION_NUMBER 更新"}
+    notes_en=${RELEASE_NOTES_EN:-"Daisy $VERSION_NUMBER release"}
+    RELEASE_VERSION_NUMBER="$VERSION_NUMBER" \
+    RELEASE_BUILD_NUMBER="$CURRENT_BUILD" \
+    RELEASE_NOTES_ZH_VALUE="$notes_zh" \
+    RELEASE_NOTES_EN_VALUE="$notes_en" \
+    /usr/bin/python3 - "$publish_dir/current.json" "$publish_dir/arm64.json" "$publish_dir/x86_64.json" > "$publish_dir/manifest.json" <<'PY'
+import datetime
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+with open(sys.argv[2], encoding="utf-8") as source:
+    arm64 = json.load(source)
+with open(sys.argv[3], encoding="utf-8") as source:
+    x86_64 = json.load(source)
+
+version = os.environ["RELEASE_VERSION_NUMBER"]
+build = int(os.environ["RELEASE_BUILD_NUMBER"])
+current = manifest.get("release")
+published_at = (
+    current["publishedAt"]
+    if current and current.get("version") == version and current.get("build") == build
+    else datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+)
+labels = {
+    "arm64": {"zh": "Apple 芯片（M 系列）", "en": "Apple Silicon (M-series)"},
+    "x86_64": {"zh": "Intel 芯片（x86_64）", "en": "Intel (x86_64)"},
+}
+downloads = []
+for uploaded in (arm64, x86_64):
+    uploaded["label"] = labels[uploaded["architecture"]]
+    downloads.append(uploaded)
+manifest["release"] = {
+    "version": version,
+    "build": build,
+    "publishedAt": published_at,
+    "notes": {
+        "zh": os.environ["RELEASE_NOTES_ZH_VALUE"].strip(),
+        "en": os.environ["RELEASE_NOTES_EN_VALUE"].strip(),
+    },
+    "downloads": downloads,
+}
+json.dump(manifest, sys.stdout, ensure_ascii=False, indent=2)
+sys.stdout.write("\n")
+PY
+
+    curl -fsS -u "$LEAFIY_ADMIN_USER:$LEAFIY_ADMIN_PASSWORD" \
+        -X PUT \
+        -H "Content-Type: application/json" \
+        --data-binary "@$publish_dir/manifest.json" \
+        "$LEAFIY_PUBLISH_URL/releases?app=$APP_SLUG" \
+        -o "$publish_dir/published.json" || {
+            echo "error: leafiy.com rejected the release manifest"
+            exit 1
+        }
+
+    public_feed="${LEAFIY_PUBLIC_FEED_URL:-https://leafiy.com/updates/$APP_SLUG.json}"
+    verified=0
+    attempt=1
+    while [ "$attempt" -le 5 ]; do
+        if curl -fsS "$public_feed?release=$VERSION_NUMBER-$CURRENT_BUILD-$attempt" -o "$publish_dir/public.json" && \
+            RELEASE_VERSION_NUMBER="$VERSION_NUMBER" RELEASE_BUILD_NUMBER="$CURRENT_BUILD" \
+            /usr/bin/python3 - "$publish_dir/public.json" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+release = manifest.get("release") or {}
+if release.get("version") != os.environ["RELEASE_VERSION_NUMBER"]:
+    raise SystemExit(1)
+if release.get("build") != int(os.environ["RELEASE_BUILD_NUMBER"]):
+    raise SystemExit(1)
+if {item.get("architecture") for item in release.get("downloads", [])} != {"arm64", "x86_64"}:
+    raise SystemExit(1)
+PY
+        then
+            verified=1
+            break
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    [ "$verified" = "1" ] || {
+        echo "error: published release is not visible at $public_feed"
+        exit 1
+    }
+    rm -rf "$publish_dir"
+    echo "published update feed: $public_feed"
+}
+
+if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
+    publish_leafiy_release
+fi
+
 if [ -z "${GITEA_TOKEN:-}" ]; then
-    echo "GITEA_TOKEN is not set; skipping Gitea upload."
+    echo "GITEA_TOKEN is not set; skipping optional Gitea mirror."
     echo "local DMGs:"
     echo "  $ARTIFACT_DIR/daisy-$VERSION-arm64.dmg"
     echo "  $ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg"
