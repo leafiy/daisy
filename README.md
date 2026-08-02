@@ -2,6 +2,8 @@
 
 Daisy 是一款轻量、原生的 macOS 翻译工具，专注于快速、安静地完成日常翻译。它常驻菜单栏，需要时立即出现，不需要时不会打断工作。
 
+![Daisy：随手翻译，不用切换](assets/promo/01-cover.png)
+
 ## 核心功能
 
 - 自动识别中文和英文，并翻译为另一种语言
@@ -18,6 +20,28 @@ Daisy 是一款轻量、原生的 macOS 翻译工具，专注于快速、安静�
 Daisy 可以作为普通窗口使用，也可以切换到更紧凑的极简模式。菜单栏提供常用开关和目标语言选择，设置修改后即时生效。
 
 快捷翻译可以直接读取当前选中的文字，并在附近显示译文；剪贴板监听则适合连续处理多段内容。
+
+## 功能展示
+
+### 输入即翻译，窗口随时置顶
+
+![输入翻译与窗口置顶](assets/promo/02-translate-and-pin.png)
+
+### Apple 系统翻译或自定义翻译引擎
+
+![选择 Apple 系统翻译或自定义翻译引擎](assets/promo/03-choose-translation-engine.png)
+
+### 选中文字，快捷翻译
+
+![通过快捷键翻译选中的文字](assets/promo/04-quick-translate-shortcut.png)
+
+### 监听剪贴板，自动完成连续翻译
+
+![剪贴板监听与翻译自动化](assets/promo/05-clipboard-automation.png)
+
+### 译文就地弹出，不打断阅读
+
+![在选中文字上方弹出译文](assets/promo/06-reading-popup.png)
 
 ## 隐私
 
