@@ -809,8 +809,8 @@ struct DaisyMenuBarMenu: View {
             appDelegate.showHistoryWindow()
         }
         Divider()
-        SettingsLink {
-            Text(L("Settings…"))
+        Button(L("Settings…")) {
+            LeafiySettingsWindow.open()
         }
         SoftwareUpdateMenuButton()
         Picker(L("Target Language"), selection: Binding(
