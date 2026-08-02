@@ -35,6 +35,17 @@ struct DaisyApp: App {
             ))
             Foundation.exit(0)
         }
+        LeafiyDiagnostics.writeLaunchReport(
+            store: LeafiySettingsStore<AppSettings>.standard(directoryName: "DaisyTranslator"),
+            probes: [
+                (label: "app",
+                 bundle: LeafiyLocalization.moduleBundle(package: "DaisyTranslator", target: "DaisyTranslator"),
+                 key: "Ready"),
+                (label: "leafiy-ui",
+                 bundle: LeafiyLocalization.moduleBundle(package: "LeafiyUI", target: "LeafiyUI"),
+                 key: "About")
+            ]
+        )
     }
 
     var body: some Scene {
