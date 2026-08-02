@@ -4,9 +4,9 @@
 # GitHub Release. The sibling leafiy-ui repository is never included.
 #
 # Usage, on a Mac with the Xcode command line tools:
-#   sh release.sh --prepare v1.2.3 # update Info.plist, then review/commit/push
-#   sh release.sh                  # test + package + publish the current version
-#   sh release.sh v1.2.3           # bump Info.plist/build, package, and publish
+#   sh release.sh --prepare [v1.2.3] # update Info.plist only, defaulting to next patch
+#   sh release.sh                  # bump, test, package, commit, push, and publish
+#   sh release.sh v1.2.3           # use an explicit version, then package and publish
 #   GH_TOKEN=xxxx sh release.sh    # use an explicit GitHub fine-grained PAT
 #   PUBLISH_TO_LEAFIY=0 PUBLISH_TO_GITHUB=0 sh release.sh # local build only
 #   PUBLISH_TO_GITHUB=0 sh release.sh # skip GitHub source/release publishing
@@ -78,8 +78,15 @@ fi
 if [ -n "$(git status --porcelain)" ]; then
     echo "warning: packaging the current working tree, including uncommitted changes"
 fi
-VERSION_NUMBER="${1#v}"
-[ -n "$VERSION_NUMBER" ] || VERSION_NUMBER="$CURRENT_VERSION"
+REQUESTED_VERSION="${1:-}"
+if [ -n "$REQUESTED_VERSION" ]; then
+    VERSION_NUMBER="${REQUESTED_VERSION#v}"
+else
+    VERSION_NUMBER=$(increment_version "$CURRENT_VERSION") || {
+        echo "error: cannot increment patch version '$CURRENT_VERSION'"
+        exit 1
+    }
+fi
 validate_version "$VERSION_NUMBER"
 printf '%s\n' "$CURRENT_BUILD" | grep -Eq '^[0-9]+$' || {
     echo "error: CFBundleVersion must be numeric (got '$CURRENT_BUILD')"
@@ -233,7 +240,8 @@ if [ "$PUBLISH_TO_LEAFIY" = "1" ]; then
     }
     printf '%s' "$leafiy_health" | /usr/bin/python3 -c 'import json, sys
 value = json.load(sys.stdin)
-if not value.get("ok") or "releases" not in value.get("capabilities", []):
+capabilities = set(value.get("capabilities", []))
+if not value.get("ok") or not capabilities.intersection({"oss-releases", "releases"}):
     raise SystemExit(1)
 ' || {
         echo "error: leafiy.com does not expose the release publishing API"
@@ -437,29 +445,25 @@ rm -rf "$WORK_ROOT"
         "daisy-$VERSION-x86_64.dmg" > SHA256SUMS
 )
 
-# Only publish source after tests, signing, notarization, and packaging have all
-# succeeded. `git add` is scoped to this repository, so the sibling leafiy-ui
-# working tree can never be included.
-if [ "$PUBLISH_TO_GITHUB" = "1" ] || [ -n "${GITEA_TOKEN:-}" ]; then
-    if [ -n "$(git status --porcelain)" ]; then
-        [ "$AUTO_COMMIT_RELEASE" = "1" ] || {
-            echo "error: source publishing requires a clean working tree"
-            echo "hint: commit the Daisy changes, or leave AUTO_COMMIT_RELEASE=1"
-            exit 1
-        }
-        git add -A -- .
-        git commit -m "Release $VERSION"
-    fi
-    HEAD_SHA=$(git rev-parse HEAD)
-fi
-if [ -n "${GITEA_TOKEN:-}" ]; then
-    git push origin HEAD:main
-    REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
-    [ "$HEAD_SHA" = "$REMOTE_MAIN" ] || {
-        echo "error: pushed release commit does not match origin/main"
+# Commit and push the exact source used for the release before publishing any
+# release metadata or assets. `git add` is scoped to this repository, so the
+# sibling leafiy-ui working tree can never be included.
+if [ -n "$(git status --porcelain)" ]; then
+    [ "$AUTO_COMMIT_RELEASE" = "1" ] || {
+        echo "error: release requires a clean working tree"
+        echo "hint: commit the Daisy changes, or leave AUTO_COMMIT_RELEASE=1"
         exit 1
     }
+    git add -A -- .
+    git commit -m "Release $VERSION"
 fi
+HEAD_SHA=$(git rev-parse HEAD)
+git push origin HEAD:main
+REMOTE_MAIN=$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')
+[ "$HEAD_SHA" = "$REMOTE_MAIN" ] || {
+    echo "error: pushed release commit does not match origin/main"
+    exit 1
+}
 if [ "$PUBLISH_TO_GITHUB" = "1" ]; then
     push_github_main
 fi

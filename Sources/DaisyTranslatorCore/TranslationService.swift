@@ -5,6 +5,7 @@ import FoundationNetworking
 
 public enum TranslationError: LocalizedError, Equatable {
     case missingBaseURL
+    case missingModel
     case invalidResponse
     case requestFailed(status: Int, body: String)
     case missingTranslatedText
@@ -18,6 +19,8 @@ public enum TranslationError: LocalizedError, Equatable {
         switch self {
         case .missingBaseURL:
             return "请先配置当前翻译服务的 Base URL"
+        case .missingModel:
+            return "请填写模型名称"
         case .invalidResponse:
             return "翻译服务响应格式无效"
         case let .requestFailed(status, body):
@@ -112,6 +115,8 @@ public struct TranslationService {
     }
 
     public static func makeOpenAICompatibleRequest(source: String, settings: AppSettings) throws -> URLRequest {
+        let model = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { throw TranslationError.missingModel }
         let url = settings.provider == .deepSeek
             ? try resolveDeepSeekChatURL(settings.effectiveBaseURL)
             : try resolveChatURL(settings.effectiveBaseURL)
@@ -122,7 +127,7 @@ public struct TranslationService {
             request.setValue("Bearer \(trimmedAPIKey(settings))", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONEncoder().encode(OpenAIChatRequest(
-            model: settings.model,
+            model: model,
             temperature: settings.temperature,
             topP: settings.topP,
             maxTokens: settings.maxTokens,

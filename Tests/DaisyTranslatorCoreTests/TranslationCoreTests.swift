@@ -39,6 +39,16 @@ final class TranslationCoreTests: XCTestCase {
                 expected: "https://llm.example.test/openai/deployments/translator/v1/chat/completions?api-version=2024-10-21"
             ),
             (
+                name: "translation route appends compatible chat endpoint",
+                baseURL: "https://tatools.example.test/api/translate",
+                expected: "https://tatools.example.test/api/translate/v1/chat/completions"
+            ),
+            (
+                name: "translation route with compatible chat endpoint is preserved",
+                baseURL: "https://tatools.example.test/api/translate/v1/chat/completions",
+                expected: "https://tatools.example.test/api/translate/v1/chat/completions"
+            ),
+            (
                 name: "trailing hash pins the exact endpoint",
                 baseURL: "https://tatools.example.test/api/translate#",
                 expected: "https://tatools.example.test/api/translate"
@@ -478,6 +488,29 @@ final class TranslationCoreTests: XCTestCase {
 
         let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
         assertTranslationMessages(messages, expectedContent: chineseToEnglishPrompt(source: "Hello, 世界"))
+    }
+
+    func testMakeRequestRejectsMissingOpenAICompatibleModelBeforeSending() {
+        let settings = AppSettings(
+            baseURL: "https://tatools.example.test/api/translate",
+            apiKey: "hy-mt2-token",
+            model: "  \n ",
+            temperature: 0.4,
+            topP: 0.8,
+            maxTokens: 8192,
+            debounceMilliseconds: 650,
+            autoTranslate: true,
+            watchClipboard: false,
+            autoCopy: true,
+            autoPaste: false,
+            alwaysOnTop: false,
+            provider: .openAICompatible
+        )
+
+        XCTAssertThrowsError(try TranslationService.makeRequest(source: "你好，世界。", settings: settings)) { error in
+            XCTAssertEqual(error as? TranslationError, .missingModel)
+            XCTAssertEqual(error.localizedDescription, "请填写模型名称")
+        }
     }
 
     func testMakeRequestBuildsDeepSeekOpenAICompatibleEndpointHeadersAndJSONBody() throws {
