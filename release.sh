@@ -5,8 +5,8 @@
 #
 # Usage, on a Mac with the Xcode command line tools:
 #   sh release.sh --prepare [v1.2.3] # update Info.plist only, defaulting to next patch
-#   sh release.sh                  # bump, test, package, commit, push, and publish
-#   sh release.sh v1.2.3           # use an explicit version, then package and publish
+#   sh release.sh                  # test, package, commit, push, and publish the current version
+#   sh release.sh v1.2.3           # set an explicit version, then package and publish
 #   GH_TOKEN=xxxx sh release.sh    # use an explicit GitHub fine-grained PAT
 #   PUBLISH_TO_LEAFIY=0 PUBLISH_TO_GITHUB=0 sh release.sh # local build only
 #   PUBLISH_TO_GITHUB=0 sh release.sh # skip GitHub source/release publishing
@@ -78,15 +78,8 @@ fi
 if [ -n "$(git status --porcelain)" ]; then
     echo "warning: packaging the current working tree, including uncommitted changes"
 fi
-REQUESTED_VERSION="${1:-}"
-if [ -n "$REQUESTED_VERSION" ]; then
-    VERSION_NUMBER="${REQUESTED_VERSION#v}"
-else
-    VERSION_NUMBER=$(increment_version "$CURRENT_VERSION") || {
-        echo "error: cannot increment patch version '$CURRENT_VERSION'"
-        exit 1
-    }
-fi
+VERSION_NUMBER="${1#v}"
+[ -n "$VERSION_NUMBER" ] || VERSION_NUMBER="$CURRENT_VERSION"
 validate_version "$VERSION_NUMBER"
 printf '%s\n' "$CURRENT_BUILD" | grep -Eq '^[0-9]+$' || {
     echo "error: CFBundleVersion must be numeric (got '$CURRENT_BUILD')"
