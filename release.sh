@@ -301,6 +301,8 @@ fi
 #   1. Developer ID Application certificate for team Q478GZN2AV in your keychain
 #   2. xcrun notarytool store-credentials "daisy-notary" \
 #          --apple-id tmly2006@gmail.com --team-id Q478GZN2AV --password <app-specific>
+#      ("daisy-notary" is the family-shared profile: notary credentials are per
+#       Apple ID/team, so eddy/fifi release.sh reuse this same profile)
 # Then release with:
 #   NOTARY_PROFILE="daisy-notary" GITEA_TOKEN=... sh release.sh v1.1
 APPLE_ID="${APPLE_ID:-tmly2006@gmail.com}"
