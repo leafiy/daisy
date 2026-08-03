@@ -367,25 +367,25 @@ struct DaisySettingsView: View {
             LeafiyGeneralPane(
                 language: appLanguageBinding,
                 launchAtLogin: settingsBinding(\.launchAtLogin),
-                dockIcon: settingsBinding(\.showDockIcon)
-            ) {
-                LabeledContent(L("Shortcut")) {
-                    ShortcutField(spec: shortcutBinding)
+                dockIcon: settingsBinding(\.showDockIcon),
+                tail: {
+                    ProviderConfigurationForm(model: model)
+                    providerHint
                 }
-                Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } tail: {
-                ProviderConfigurationForm(model: model)
-                providerHint
-            }
-            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 700) {
-                Section(L("Quick Translate")) {
-                    Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
+            )
+            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 760) {
+                Section(L("Translate Selection")) {
+                    Toggle(L("Translate Selection"), isOn: settingsBinding(\.quickTranslateEnabled))
                     Text(L("Translate selected text and show the translation in a popup toolbar"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle(L("Quick Translate Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
+                    LabeledContent(L("Shortcut")) {
+                        ShortcutField(spec: shortcutBinding)
+                    }
+                    Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Toggle(L("Translate Selection Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
                     Text(L("Automatically write the popup translation to the clipboard"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -562,26 +562,17 @@ struct ProviderConfigurationForm: View {
 
     @ViewBuilder
     private var standardFields: some View {
-        LabeledContent(L("Base URL")) {
-            TextField(
-                providerFieldSemantics.baseURLPlaceholder,
-                text: providerFieldBinding(\.baseURL)
-            )
-            .disabled(!providerFieldSemantics.baseURLEnabled)
+        ProviderFieldRow(L("Base URL"), hint: providerFieldSemantics.baseURLHint) {
+            TextField("", text: providerFieldBinding(\.baseURL))
+                .disabled(!providerFieldSemantics.baseURLEnabled)
         }
-        LabeledContent(L("API Key")) {
-            SecureField(
-                providerFieldSemantics.apiKeyPlaceholder,
-                text: providerFieldBinding(\.apiKey)
-            )
-            .disabled(!providerFieldSemantics.apiKeyEnabled)
+        ProviderFieldRow(L("API Key"), hint: providerFieldSemantics.apiKeyHint) {
+            SecureField("", text: providerFieldBinding(\.apiKey))
+                .disabled(!providerFieldSemantics.apiKeyEnabled)
         }
-        LabeledContent(L("Model")) {
-            TextField(
-                providerFieldSemantics.modelPlaceholder,
-                text: providerFieldBinding(\.model)
-            )
-            .disabled(!providerFieldSemantics.modelEnabled)
+        ProviderFieldRow(L("Model"), hint: providerFieldSemantics.modelHint) {
+            TextField("", text: providerFieldBinding(\.model))
+                .disabled(!providerFieldSemantics.modelEnabled)
         }
     }
 
@@ -602,11 +593,11 @@ struct ProviderConfigurationForm: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
-            LabeledContent(L("Base URL")) {
-                TextField("http://192.168.1.10:11434", text: providerFieldBinding(\.baseURL))
+            ProviderFieldRow(L("Base URL"), hint: String(format: L("Example: %@"), "http://192.168.1.10:11434")) {
+                TextField("", text: providerFieldBinding(\.baseURL))
             }
-            LabeledContent(L("API Key")) {
-                SecureField(L("Optional: only for a gated Ollama"), text: providerFieldBinding(\.apiKey))
+            ProviderFieldRow(L("API Key"), hint: L("Optional: only for a gated Ollama")) {
+                SecureField("", text: providerFieldBinding(\.apiKey))
             }
         }
         LabeledContent(L("Model")) {
@@ -642,7 +633,7 @@ struct ProviderConfigurationForm: View {
     @ViewBuilder
     private var ollamaModelControl: some View {
         if ollamaModelChoices.isEmpty {
-            TextField(L("Model name"), text: providerFieldBinding(\.model))
+            TextField("", text: providerFieldBinding(\.model))
         } else {
             Picker(L("Model"), selection: providerFieldBinding(\.model)) {
                 ForEach(ollamaModelChoices, id: \.self) { name in
@@ -727,6 +718,33 @@ struct ProviderConfigurationForm: View {
     }
 }
 
+/// Provider form row: the title carries the example/status hint as caption
+/// text underneath, so the input itself stays free of placeholder noise.
+private struct ProviderFieldRow<Field: View>: View {
+    private let title: String
+    private let hint: String?
+    private let field: Field
+
+    init(_ title: String, hint: String? = nil, @ViewBuilder field: () -> Field) {
+        self.title = title
+        self.hint = hint
+        self.field = field()
+    }
+
+    var body: some View {
+        LabeledContent {
+            field
+        } label: {
+            Text(title)
+            if let hint {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 /// Field behaviour for the providers that share the standard Base URL / API Key
 /// / Model layout. Ollama has its own fields, so it never reaches here.
 private struct ProviderFieldSemantics {
@@ -744,42 +762,42 @@ private struct ProviderFieldSemantics {
         provider != .appleSystem && provider != .google && provider != .baidu
     }
 
-    var baseURLPlaceholder: String {
+    var baseURLHint: String? {
         switch provider {
         case .appleSystem:
             return L("No configuration needed")
         case .deepSeek:
             return L("Automatically uses official URL")
         case .google:
-            return "https://translate.googleapis.com"
+            return String(format: L("Example: %@"), "https://translate.googleapis.com")
         case .baidu:
-            return "https://fanyi-api.baidu.com"
+            return String(format: L("Example: %@"), "https://fanyi-api.baidu.com")
         case .openAICompatible:
-            return "https://api.example.com/v1"
+            return String(format: L("Example: %@"), "https://api.example.com/v1")
         case .ollama:
-            return AppSettings.localOllamaBaseURL
+            return String(format: L("Example: %@"), AppSettings.localOllamaBaseURL)
         }
     }
 
-    var apiKeyPlaceholder: String {
+    var apiKeyHint: String? {
         switch provider {
         case .appleSystem:
             return L("No configuration needed")
         case .google:
             return L("Optional: Google Cloud API Key")
         case .deepSeek, .baidu, .ollama, .openAICompatible:
-            return L("API Key")
+            return nil
         }
     }
 
-    var modelPlaceholder: String {
+    var modelHint: String? {
         switch provider {
         case .appleSystem, .google, .baidu:
             return L("No configuration needed")
         case .deepSeek:
-            return AppSettings.defaultModel(for: .deepSeek)
+            return String(format: L("Example: %@"), AppSettings.defaultModel(for: .deepSeek))
         case .ollama, .openAICompatible:
-            return L("Model name")
+            return nil
         }
     }
 }
@@ -844,7 +862,7 @@ struct DaisyMenuBarMenu: View {
         }
         Divider()
         Toggle(L("Minimal Mode"), isOn: settingsBinding(\.minimalMode))
-        Toggle(L("Quick Translate"), isOn: settingsBinding(\.quickTranslateEnabled))
+        Toggle(L("Translate Selection"), isOn: settingsBinding(\.quickTranslateEnabled))
         Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
         Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))
         Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))

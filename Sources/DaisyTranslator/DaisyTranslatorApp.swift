@@ -614,7 +614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.messageText = L("Allow Daisy to control the keyboard")
-        alert.informativeText = L("Quick translate needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again.")
+        alert.informativeText = L("Translate Selection needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again.")
         alert.alertStyle = .informational
         alert.addButton(withTitle: L("Open System Settings"))
         alert.addButton(withTitle: L("Later"))

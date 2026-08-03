@@ -52,6 +52,7 @@
 "Enter source text to start translating" = "输入原文后开始翻译";
 "Failed to save. Check settings file permissions." = "存储失败，请检查设置文件权限";
 "Failed to send keystroke. Check Accessibility permission." = "发送按键失败，请检查辅助功能权限";
+"Example: %@" = "示例：%@";
 "Failed to write to clipboard. Try again." = "写入剪贴板失败，请重试";
 "Fill in the remote Ollama address to load its models" = "填写远程 Ollama 地址后即可加载模型列表";
 "First-time Setup" = "首次配置";
@@ -68,7 +69,6 @@
 "Local" = "本地";
 "Make the whole window translucent in both standard and minimal mode" = "普通模式与极简模式下都让整个窗口半透明";
 "Minimal Mode" = "极简模式";
-"Model name" = "模型名称";
 "Model" = "模型";
 "No configuration needed" = "无需配置";
 "No matches" = "没有匹配结果";
@@ -89,9 +89,9 @@
 "Pasted" = "已粘贴";
 "Pin Window" = "置顶窗口";
 "Privacy" = "隐私";
-"Quick Translate Auto Copy" = "快捷翻译自动拷贝";
-"Quick Translate" = "快捷翻译";
-"Quick translate needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again." = "快捷翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。\n\n如果列表里 Daisy 已开启但仍弹出本提示，说明授权已因应用重新构建而失效：请在“辅助功能”列表中用“−”移除 Daisy 后重新添加。";
+"Translate Selection Auto Copy" = "划词翻译自动拷贝";
+"Translate Selection" = "划词翻译";
+"Translate Selection needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again." = "划词翻译需要发送 Cmd+C 读取所选文本，自动粘贴需要发送 Cmd+V，两者都依赖 macOS 辅助功能权限。\n\n如果列表里 Daisy 已开启但仍弹出本提示，说明授权已因应用重新构建而失效：请在“辅助功能”列表中用“−”移除 Daisy 后重新添加。";
 "Read clipboard" = "已读取剪贴板";
 "Ready" = "就绪";
 "Reload installed models" = "重新加载已安装模型";
