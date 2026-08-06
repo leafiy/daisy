@@ -1,0 +1,28 @@
+{
+  "capturePolicy": {
+    "source": "production SwiftUI views rendered by PromoCaptureTests",
+    "data": "fictional in-memory state only",
+    "existingPromoImagesUsed": false,
+    "scale": 2,
+    "derivedWhiteTextures": "white/*.png"
+  },
+  "assets": {
+    "minimal-empty": {"width": 680, "height": 616, "uiPoints": [340, 308]},
+    "minimal-unpinned": {"width": 680, "height": 616, "uiPoints": [340, 308]},
+    "minimal-pinned": {"width": 680, "height": 616, "uiPoints": [340, 308]},
+    "minimal-auto": {"width": 680, "height": 616, "uiPoints": [340, 308]},
+    "standard-auto": {"width": 1240, "height": 1080, "uiPoints": [620, 540]},
+    "quick-popup": {"width": 780, "height": 312, "uiPoints": [390, 156]},
+    "settings-apple": {"width": 1400, "height": 1200, "uiPoints": [700, 600]},
+    "settings-openai": {"width": 1400, "height": 1200, "uiPoints": [700, 600]},
+    "settings-ollama": {"width": 1400, "height": 1200, "uiPoints": [700, 600]},
+    "settings-deepseek": {"width": 1400, "height": 1200, "uiPoints": [700, 600]},
+    "settings-workflow": {"width": 1400, "height": 1640, "uiPoints": [700, 820]}
+  },
+  "safeCrops": {
+    "minimal-result-pane": {"source": "minimal-auto", "rect": [16, 337, 648, 255]},
+    "provider-type-row": {"sourceWidth": 1400, "rect": [120, 480, 1160, 125]},
+    "settings-general-content": {"sourceWidth": 1400, "rect": [80, 180, 1240, 880]},
+    "workflow-automation": {"sourceWidth": 1400, "rect": [100, 620, 1200, 680]}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "format": {"width": 1920, "height": 1080, "fps": 30, "video": "h264", "audio": "aac-48000-stereo"},
+  "deliverables": [
+    {"file": "out/final/DaisyOverview.mp4", "duration": 30, "sha256": "14bdf12f1ce21e6944ce91bbfcc00dcb0310309ef8730b6170ba979766b8c455"},
+    {"file": "out/final/DaisyOverview-no-bgm.mp4", "duration": 30, "sha256": "9489ea4d56668cf44c8526fbe2289ba255ab45d91ed9c94f6a917f2966e7e1e3"},
+    {"file": "out/final/DaisyPinned.mp4", "duration": 15, "sha256": "3b10e2f6f0529fe899a22efbeed49621bfc62b77399bdb6f471e0ec46f6f53a1"},
+    {"file": "out/final/DaisyPinned-no-bgm.mp4", "duration": 15, "sha256": "a2112f725ad297eb6b0fb0acf4cbcc0b34e73355a485640a9ee4934003305a73"},
+    {"file": "out/final/DaisyAuto.mp4", "duration": 15, "sha256": "7db2019a7c6dd46c182a0971b5fa498ed2a08f71702ee8f0ccd091b72df074ac"},
+    {"file": "out/final/DaisyAuto-no-bgm.mp4", "duration": 15, "sha256": "19946c9f22754e301f0e37b17482bc58f9fc3400e4aaf7cb18d98f88e23d3260"},
+    {"file": "out/final/DaisyAI.mp4", "duration": 15, "sha256": "12f0d6108c7c04f8e3ed5e6e1376ba6968e7593b894cff2d8b263893dff1aef1"},
+    {"file": "out/final/DaisyAI-no-bgm.mp4", "duration": 15, "sha256": "c12985c3d1444d379196276f05c0fcbead86707382d8c8ca94913846c1387dae"}
+  ],
+  "videoStreamMd5Pairs": {
+    "DaisyOverview": "e0beeb292e2eb1c4a11ef798c1b2b58a",
+    "DaisyPinned": "964d74335d9f525ffc1bde11b2594968",
+    "DaisyAuto": "8ea953c8c69c1fc85d03330aa6cfb579",
+    "DaisyAI": "0eaafcf21046a5b5032a220161441a4e"
+  }
+}

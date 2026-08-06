@@ -335,3 +335,21 @@ private struct QuickTranslatePopupContent: View {
     }
 }
 
+#if DEBUG
+/// Exposes the production popup composition to visual-capture tests without
+/// widening `QuickTranslatePopupContent`'s release-build visibility.
+@MainActor
+func quickTranslatePopupCaptureView(
+    text: String,
+    autoCopyEnabled: Bool = true
+) -> AnyView {
+    AnyView(
+        QuickTranslatePopupContent(
+            text: text,
+            autoCopyEnabled: autoCopyEnabled,
+            onAutoCopyChanged: { _ in },
+            onClose: {}
+        )
+    )
+}
+#endif

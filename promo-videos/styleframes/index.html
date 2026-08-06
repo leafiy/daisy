@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daisy — Pinned Air styleframes</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #667085;
+      --blue: #2f7df6;
+      --mint: #32c9a3;
+      --hairline: rgba(17, 24, 39, .08);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #e8ebf0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+    .frame {
+      width: 1920px;
+      height: 1080px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(720px 520px at 76% 42%, rgba(47,125,246,.13), transparent 68%),
+        radial-gradient(520px 420px at 82% 68%, rgba(50,201,163,.10), transparent 70%),
+        #fff;
+      color: var(--ink);
+      border-bottom: 1px solid #d8dde6;
+    }
+    .frame:target { outline: none; }
+    .brand {
+      position: absolute;
+      top: 62px;
+      left: 76px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 34px;
+      font-weight: 680;
+      letter-spacing: -.025em;
+    }
+    .brand img { width: 52px; height: 52px; border-radius: 13px; }
+    .copy { position: absolute; left: 92px; top: 290px; width: 780px; }
+    .eyebrow {
+      color: var(--blue);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 104px;
+      line-height: 1.02;
+      letter-spacing: -.065em;
+      font-weight: 760;
+    }
+    .sub {
+      margin-top: 38px;
+      color: var(--muted);
+      font-size: 31px;
+      line-height: 1.48;
+      letter-spacing: -.02em;
+      max-width: 660px;
+    }
+    .accent-rule {
+      width: 88px;
+      height: 6px;
+      margin-top: 46px;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--blue), var(--mint));
+    }
+    .product-stage {
+      position: absolute;
+      right: 176px;
+      top: 230px;
+      width: 620px;
+      height: 620px;
+      display: grid;
+      place-items: center;
+      border-radius: 44px;
+      border: 1px solid rgba(47,125,246,.09);
+      background: rgba(255,255,255,.62);
+      box-shadow: 0 40px 110px rgba(47,125,246,.09);
+    }
+    .window {
+      width: 544px;
+      height: auto;
+      border-radius: 24px;
+      image-rendering: auto;
+      box-shadow: 0 12px 28px rgba(17,24,39,.12), 0 45px 100px rgba(47,125,246,.16);
+    }
+    .pin-dot {
+      position: absolute;
+      right: 52px;
+      top: 48px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 0 12px rgba(47,125,246,.10);
+    }
+    .footer {
+      position: absolute;
+      left: 92px;
+      right: 92px;
+      bottom: 52px;
+      display: flex;
+      justify-content: space-between;
+      color: #98a2b3;
+      font-size: 18px;
+      letter-spacing: .08em;
+    }
+    .quiet-lines {
+      position: absolute;
+      right: 90px;
+      top: 180px;
+      width: 940px;
+      display: grid;
+      gap: 34px;
+      transform: rotate(-4deg);
+      opacity: .24;
+    }
+    .quiet-lines span { height: 4px; border-radius: 99px; background: #aab3c2; }
+    .quiet-lines span:nth-child(2) { width: 83%; }
+    .quiet-lines span:nth-child(3) { width: 91%; }
+    .quiet-lines span:nth-child(4) { width: 72%; }
+    .floating-window { right: 200px; top: 300px; width: 560px; height: 560px; }
+    .provider-cloud {
+      position: absolute;
+      right: 118px;
+      top: 230px;
+      width: 880px;
+      height: 620px;
+    }
+    .provider {
+      position: absolute;
+      min-width: 240px;
+      padding: 26px 32px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid var(--hairline);
+      box-shadow: 0 18px 55px rgba(17,24,39,.08);
+      font-size: 25px;
+      font-weight: 650;
+      text-align: center;
+    }
+    .provider:nth-child(1) { left: 270px; top: 40px; }
+    .provider:nth-child(2) { left: 20px; top: 210px; }
+    .provider:nth-child(3) { left: 540px; top: 210px; }
+    .provider:nth-child(4) { left: 120px; top: 410px; }
+    .provider:nth-child(5) { left: 445px; top: 420px; }
+    .provider.core {
+      left: 290px;
+      top: 230px;
+      min-width: 290px;
+      padding: 34px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), #418af6 58%, var(--mint));
+      box-shadow: 0 30px 90px rgba(47,125,246,.24);
+      z-index: 2;
+    }
+    .provider.core img { width: 54px; height: 54px; vertical-align: middle; margin-right: 14px; border-radius: 13px; }
+  </style>
+</head>
+<body>
+  <section class="frame" id="frame-1">
+    <div class="brand"><img src="assets/daisy-icon.png" alt="" />Daisy</div>
+    <div class="copy">
+      <div class="eyebrow">Pinned Air · Overview</div>
+      <h1>钉在屏幕上。<br />翻译随处到。</h1>
+      <div class="sub">一个轻盈的原生窗口，安静留在手边。需要翻译时出现，不需要时不打断工作。</div>
+      <div class="accent-rule"></div>
+    </div>
+    <div class="product-stage">
+      <div class="pin-dot"></div>
+      <img class="window" src="assets/minimal-empty.png" alt="Daisy minimal window" />
+    </div>
+    <div class="footer"><span>WHITE · NATIVE · LIGHTWEIGHT</span><span>1920×1080</span></div>
+  </section>
+
+  <section class="frame" id="frame-2">
+    <div class="quiet-lines"><span></span><span></span><span></span><span></span></div>
+    <div class="brand"><img src="assets/daisy-icon.png" alt="" />Daisy</div>
+    <div class="copy">
+      <div class="eyebrow">Pinned Air · In Context</div>
+      <h1>原文不动，<br />译文就到。</h1>
+      <div class="sub">真实 Daisy 界面始终是唯一产品主角；环境文字只承担“正在阅读”的语境。</div>
+      <div class="accent-rule"></div>
+    </div>
+    <div class="product-stage floating-window">
+      <img class="window" src="assets/minimal-empty.png" alt="Daisy minimal window" />
+    </div>
+    <div class="footer"><span>CONTEXT REMAINS IN PLACE</span><span>NO DARK INTERSTITIALS</span></div>
+  </section>
+
+  <section class="frame" id="frame-3">
+    <div class="brand"><img src="assets/daisy-icon.png" alt="" />Daisy</div>
+    <div class="copy">
+      <div class="eyebrow">Pinned Air · AI Choice</div>
+      <h1>Apple 起步，<br />也能接入你的 AI。</h1>
+      <div class="sub">服务名称只作为排版标签；最终视频中的选择器、菜单与字段全部换成运行中 Daisy 的真实捕获。</div>
+      <div class="accent-rule"></div>
+    </div>
+    <div class="provider-cloud">
+      <div class="provider">Apple 系统翻译</div>
+      <div class="provider">OpenAI-compatible</div>
+      <div class="provider">Ollama</div>
+      <div class="provider">DeepSeek</div>
+      <div class="provider">Google / 百度</div>
+      <div class="provider core"><img src="assets/daisy-icon.png" alt="" />Daisy</div>
+    </div>
+    <div class="footer"><span>REAL SETTINGS CAPTURE IN FINAL</span><span>NO CREDENTIAL VALUES</span></div>
+  </section>
+</body>
+</html>

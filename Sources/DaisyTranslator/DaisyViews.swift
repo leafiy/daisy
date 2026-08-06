@@ -373,63 +373,7 @@ struct DaisySettingsView: View {
                     providerHint
                 }
             )
-            SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 760) {
-                Section(L("Translate Selection")) {
-                    Toggle(L("Translate Selection"), isOn: settingsBinding(\.quickTranslateEnabled))
-                    Text(L("Translate selected text and show the translation in a popup toolbar"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    LabeledContent(L("Shortcut")) {
-                        ShortcutField(spec: shortcutBinding)
-                    }
-                    Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Toggle(L("Translate Selection Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
-                    Text(L("Automatically write the popup translation to the clipboard"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section(L("Automation")) {
-                    Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
-                    Text(L("Automatically translate after input stops"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))
-                    Text(L("Automatically read and translate clipboard changes"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
-                    Text(L("Write translations to the clipboard when complete"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
-                    Text(L("Paste translations into the frontmost app when complete"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section(L("Window")) {
-                    Toggle(L("Window Transparency"), isOn: settingsBinding(\.windowOpacityEnabled))
-                    Text(L("Make the whole window translucent in both standard and minimal mode"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if model.settings.windowOpacityEnabled {
-                        WindowOpacitySlider(
-                            title: L("Focused"),
-                            value: settingsBinding(\.focusedWindowOpacity),
-                            onPreview: { model.previewWindowOpacity?($0) }
-                        )
-                        WindowOpacitySlider(
-                            title: L("Unfocused"),
-                            value: settingsBinding(\.unfocusedWindowOpacity),
-                            onPreview: { model.previewWindowOpacity?($0) }
-                        )
-                        Text(L("Transparency automatically blurs the background behind the window, more so the more transparent it is"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            DaisyWorkflowSettingsPane(model: model)
             SettingsPane(L("Privacy"), systemImage: "hand.raised", height: 420) {
                 Section(L("Privacy")) {
                     Text(L("""
@@ -471,6 +415,81 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
             }
         )
     }
+    private func settingsBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { value in
+                model.updateSettings { $0[keyPath: keyPath] = value }
+            }
+        )
+    }
+}
+
+/// The production Workflow settings pane, factored as a view so visual capture
+/// can render the exact controls without selecting a `TabView` tab manually.
+struct DaisyWorkflowSettingsPane: View {
+    @ObservedObject var model: DaisyModel
+
+    var body: some View {
+        SettingsPane(L("Workflow"), systemImage: "slider.horizontal.3", height: 760) {
+            Section(L("Translate Selection")) {
+                Toggle(L("Translate Selection"), isOn: settingsBinding(\.quickTranslateEnabled))
+                Text(L("Translate selected text and show the translation in a popup toolbar"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent(L("Shortcut")) {
+                    ShortcutField(spec: shortcutBinding)
+                }
+                Text(String(format: L("Current shortcut: %@"), shortcutDisplay))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(L("Translate Selection Auto Copy"), isOn: settingsBinding(\.quickTranslateAutoCopy))
+                Text(L("Automatically write the popup translation to the clipboard"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section(L("Automation")) {
+                Toggle(L("Auto Translate"), isOn: settingsBinding(\.autoTranslate))
+                Text(L("Automatically translate after input stops"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(L("Watch Clipboard"), isOn: settingsBinding(\.watchClipboard))
+                Text(L("Automatically read and translate clipboard changes"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
+                Text(L("Write translations to the clipboard when complete"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
+                Text(L("Paste translations into the frontmost app when complete"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section(L("Window")) {
+                Toggle(L("Window Transparency"), isOn: settingsBinding(\.windowOpacityEnabled))
+                Text(L("Make the whole window translucent in both standard and minimal mode"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if model.settings.windowOpacityEnabled {
+                    WindowOpacitySlider(
+                        title: L("Focused"),
+                        value: settingsBinding(\.focusedWindowOpacity),
+                        onPreview: { model.previewWindowOpacity?($0) }
+                    )
+                    WindowOpacitySlider(
+                        title: L("Unfocused"),
+                        value: settingsBinding(\.unfocusedWindowOpacity),
+                        onPreview: { model.previewWindowOpacity?($0) }
+                    )
+                    Text(L("Transparency automatically blurs the background behind the window, more so the more transparent it is"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var shortcutBinding: Binding<KeyboardShortcutSpec> {
         Binding(
             get: {
@@ -933,4 +952,3 @@ struct DaisyMenuBarLabel: View {
         }
     }
 }
-

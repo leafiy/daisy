@@ -1,0 +1,8 @@
+node_modules/
+out/*.mp4
+out/*.mov
+out/offline/
+out/styleframes/
+out/qa/**/*.png
+out/review/**/*.png
+.DS_Store
