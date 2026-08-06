@@ -335,9 +335,8 @@ private struct QuickTranslatePopupContent: View {
     }
 }
 
-#if DEBUG
-/// Exposes the production popup composition to visual-capture tests without
-/// widening `QuickTranslatePopupContent`'s release-build visibility.
+/// Exposes the production popup composition to visual-capture tests while
+/// keeping `QuickTranslatePopupContent` private.
 @MainActor
 func quickTranslatePopupCaptureView(
     text: String,
@@ -352,4 +351,3 @@ func quickTranslatePopupCaptureView(
         )
     )
 }
-#endif
