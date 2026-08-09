@@ -133,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LeafiyApplicationMode.enforceStandard()
         SoftwareUpdateController.shared.startAutomaticCheck()
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
         let loadedSettings = settingsStore.load()
@@ -140,7 +141,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
         LeafiyLaunchAtLogin.setEnabled(loadedSettings.launchAtLogin)
-        LeafiyDockIcon.setVisible(loadedSettings.showDockIcon)
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
@@ -168,10 +168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The Apple-translation bridge inside TranslatorView dies with the main
     /// window when the user closes it (the SwiftUI Window scene tears down
     /// its content), which would stall menu-bar/hotkey quick translation on
-    /// the Apple provider until the window reopens. This invisible utility
-    /// window hosts a second bridge view sharing the same serialized request
-    /// model, so a translation session is always reachable; the model's
-    /// take-once guard keeps the two hosts from double-running a request.
+    /// the Apple provider until the window reopens. This un-ordered internal
+    /// host owns a second bridge view sharing the same serialized request
+    /// model; the model's take-once guard keeps the two hosts from
+    /// double-running a request. It must never be ordered, because capture
+    /// tools otherwise mistake the transparent 1x1 surface for Daisy's UI.
     private func installTranslationBridgeHost() {
         let hostingView = NSHostingView(rootView: appleTranslationService.bridgeView())
         hostingView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
@@ -182,13 +183,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.isExcludedFromWindowsMenu = true
         window.ignoresMouseEvents = true
         window.alphaValue = 0
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
         window.collectionBehavior = [.ignoresCycle, .stationary]
         window.contentView = hostingView
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
-        window.orderFrontRegardless()
+        LeafiyWindowRegistry.register(
+            window,
+            id: "translation-bridge-host",
+            role: .internalHost
+        )
         translationBridgeHostWindow = window
     }
 
@@ -218,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func registerMainWindow(_ window: NSWindow) {
         mainWindow = window
+        LeafiyWindowRegistry.register(window, id: "main", role: .primary, title: "Daisy")
     }
 
     func registerHistoryWindow(_ window: NSWindow) {
@@ -226,6 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // rebuild the App value. Refresh it whenever SwiftUI updates the
         // accessor so the title follows the rest of the localized content.
         window.title = L("Translation History")
+        LeafiyWindowRegistry.register(
+            window,
+            id: "translation-history",
+            role: .auxiliary,
+            title: L("Translation History")
+        )
     }
 
     func copyHistoryText(_ text: String) {
@@ -448,7 +460,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try settingsStore.save(normalizedSettings)
             LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
             LeafiyLaunchAtLogin.setEnabled(normalizedSettings.launchAtLogin)
-            LeafiyDockIcon.setVisible(normalizedSettings.showDockIcon)
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()
@@ -515,7 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let alwaysOnTopShortcut = KeyboardShortcutSpec(first: .command, second: .shift, key: "O") {
             hotKeyCenter.register(id: HotKeyID.toggleAlwaysOnTop.rawValue, shortcut: alwaysOnTopShortcut) { [weak self] in
                 DispatchQueue.main.async { [weak self] in
-                    self?.model.updateSettings { $0.alwaysOnTop.toggle() }
+                    self?.toggleAlwaysOnTop()
                 }
             }
         }
@@ -524,10 +535,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let quickTranslateShortcut = KeyboardShortcutSpec(parsing: model.settings.quickTranslateShortcut) {
             hotKeyCenter.register(id: HotKeyID.quickTranslateSelection.rawValue, shortcut: quickTranslateShortcut) { [weak self] in
                 DispatchQueue.main.async { [weak self] in
-                    self?.translateSelectionWithoutWindow()
+                    self?.translateSelection()
                 }
             }
         }
+    }
+
+    func toggleAlwaysOnTop() {
+        model.updateSettings { $0.alwaysOnTop.toggle() }
+    }
+
+    func translateSelection() {
+        translateSelectionWithoutWindow()
     }
 
     private func configureQuickTranslatePopup() {
@@ -636,9 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func findMainWindow() -> NSWindow? {
-        mainWindow ?? NSApp.windows.first { window in
-            !(window is NSPanel) && window.title == "Daisy"
-        }
+        mainWindow ?? LeafiyWindowRegistry.window(id: "main")
     }
 }
 

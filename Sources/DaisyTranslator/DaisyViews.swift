@@ -367,7 +367,6 @@ struct DaisySettingsView: View {
             LeafiyGeneralPane(
                 language: appLanguageBinding,
                 launchAtLogin: settingsBinding(\.launchAtLogin),
-                dockIcon: settingsBinding(\.showDockIcon),
                 tail: {
                     ProviderConfigurationForm(model: model)
                     providerHint
@@ -903,20 +902,50 @@ struct DaisyMenuBarMenu: View {
     }
 }
 
-/// Standard app-menu entry for a standard auxiliary window. The menu-bar
-/// extra remains the fastest entry point, while this keeps Daisy consistent
-/// with ordinary macOS apps and makes history keyboard-accessible.
+/// App-wide commands exposed through the standard macOS main menu. Dynamic
+/// global shortcuts use the same `KeyboardShortcutSpec` as Carbon so the menu
+/// and the actual registration cannot drift apart.
 struct DaisyCommands: Commands {
     let appDelegate: AppDelegate
+    @ObservedObject private var model: DaisyModel
     @Environment(\.openWindow) private var openWindow
 
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        self.model = appDelegate.model
+    }
+
     var body: some Commands {
-        CommandGroup(after: .appSettings) {
+        CommandMenu(L("Translate")) {
+            if let shortcut = KeyboardShortcutSpec(parsing: model.settings.quickTranslateShortcut) {
+                LeafiyShortcutMenuButton(
+                    L("Translate Selection"),
+                    shortcut: shortcut,
+                    action: appDelegate.translateSelection
+                )
+                .disabled(!model.settings.quickTranslateEnabled)
+            }
+            Button(L("Paste Current Translation")) {
+                model.pasteResult()
+            }
             Divider()
             Button(L("Translation History…")) {
                 appDelegate.showHistoryWindow(openWindow: openWindow)
             }
             .keyboardShortcut("y", modifiers: .command)
+            if let shortcut = KeyboardShortcutSpec(first: .command, second: .shift, key: "O") {
+                Toggle(
+                    L("Pin Window"),
+                    isOn: Binding(
+                        get: { model.settings.alwaysOnTop },
+                        set: { enabled in
+                            guard enabled != model.settings.alwaysOnTop else { return }
+                            appDelegate.toggleAlwaysOnTop()
+                        }
+                    )
+                )
+                .keyboardShortcut(shortcut.keyEquivalent, modifiers: shortcut.eventModifiers)
+            }
         }
     }
 }

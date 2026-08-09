@@ -128,7 +128,9 @@ final class QuickTranslatePopupController: NSObject, NSWindowDelegate {
             configuration: LeafiyFloatingPanelConfiguration(
                 canBecomeKey: true,
                 isMovable: true,
-                hasShadow: true
+                hasShadow: true,
+                identifier: "quick-translate",
+                title: L("Translate Selection")
             ),
             content: popupContent(text: text, autoCopyEnabled: autoCopyEnabled)
         )
