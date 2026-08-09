@@ -35,6 +35,8 @@
 	<string>14.0</string>
 	<key>LeafiyUpdateFeedURL</key>
 	<string>https://leafiy.com/updates/daisy.json</string>
+	<key>LeafiyMenuBarIconFile</key>
+	<string>daisy.png</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

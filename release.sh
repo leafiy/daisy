@@ -17,6 +17,10 @@
 set -eu
 cd "$(dirname "$0")"
 
+FAMILY_CONTRACT="../leafiy-ui/scripts/check-app-family-contract.sh"
+[ -x "$FAMILY_CONTRACT" ] || { echo "error: shared app-family contract not found: $FAMILY_CONTRACT"; exit 1; }
+"$FAMILY_CONTRACT" "$PWD"
+
 command -v swift >/dev/null 2>&1 || { echo "error: needs macOS with Xcode command line tools"; exit 1; }
 APP_ICON_SOURCE="daisy.png"
 MENU_ICON_SOURCE="Sources/DaisyTranslator/Resources/Icons/daisy.png"
@@ -386,8 +390,8 @@ build_dmg() { # $1 = arch
     arch="$1"
     scratch="$WORK_ROOT/swift-$arch"
     echo "== building $arch =="
-    swift build -c release --arch "$arch" --scratch-path "$scratch"
-    bin_dir=$(swift build -c release --arch "$arch" --scratch-path "$scratch" --show-bin-path)
+    swift build -c release --disable-build-manifest-caching --arch "$arch" --scratch-path "$scratch"
+    bin_dir=$(swift build -c release --disable-build-manifest-caching --arch "$arch" --scratch-path "$scratch" --show-bin-path)
 
     app="$WORK_ROOT/$arch/Daisy.app"
     rm -rf "$WORK_ROOT/$arch"
@@ -464,7 +468,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 rm -rf "$WORK_ROOT"
 mkdir -p "$WORK_ROOT" "$ARTIFACT_DIR"
 echo "== running release tests =="
-swift test -c release --scratch-path "$WORK_ROOT/swift-tests"
+swift test -c release --disable-build-manifest-caching --scratch-path "$WORK_ROOT/swift-tests"
 arm64_dmg="$ARTIFACT_DIR/daisy-$VERSION-arm64.dmg"
 x86_dmg="$ARTIFACT_DIR/daisy-$VERSION-x86_64.dmg"
 source_commit_file="$ARTIFACT_DIR/.source-commit"

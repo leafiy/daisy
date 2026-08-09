@@ -4,6 +4,10 @@
 set -eu
 cd "$(dirname "$0")"
 
+FAMILY_CONTRACT="../leafiy-ui/scripts/check-app-family-contract.sh"
+[ -x "$FAMILY_CONTRACT" ] || { echo "error: shared app-family contract not found: $FAMILY_CONTRACT"; exit 1; }
+"$FAMILY_CONTRACT" "$PWD"
+
 TEAM_ID="${TEAM_ID:-Q478GZN2AV}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 

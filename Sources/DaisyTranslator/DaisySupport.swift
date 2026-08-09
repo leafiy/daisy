@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import DaisyTranslatorCore
 import LeafiyUICore
+import LeafiyUI
 
 func providerTitle(_ provider: ModelProvider) -> String {
     switch provider {
@@ -81,34 +82,15 @@ extension NSImage {
     static func daisyAppIcon() -> NSImage? {
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let image = NSImage(contentsOf: url) {
-            image.accessibilityDescription = "Daisy"
+            image.accessibilityDescription = LeafiyAppIdentity.current.name
             return image
         }
 
         if let image = NSApplication.shared.applicationIconImage,
            !image.representations.isEmpty {
-            image.accessibilityDescription = "Daisy"
+            image.accessibilityDescription = LeafiyAppIdentity.current.name
             return image
         }
         return nil
     }
-
-    static func daisyIcon() -> NSImage? {
-        for bundle in [daisyResources, Bundle.main] {
-            for subdirectory in [nil, "Icons"] as [String?] {
-                guard let url = bundle.url(forResource: "daisy", withExtension: "png", subdirectory: subdirectory),
-                      let image = NSImage(contentsOf: url) else {
-                    continue
-                }
-                image.accessibilityDescription = "Daisy"
-                return image
-            }
-        }
-        return nil
-    }
-
-    private static let daisyResources = LeafiyLocalization.moduleBundle(
-        package: "daisy",
-        target: "DaisyTranslator"
-    )
 }

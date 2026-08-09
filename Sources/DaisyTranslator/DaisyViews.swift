@@ -363,7 +363,7 @@ struct DaisySettingsView: View {
     @ObservedObject var model: DaisyModel
 
     var body: some View {
-        SettingsScaffold {
+        LeafiyFamilySettings(language: model.settings.selectedAppLanguage) {
             LeafiyGeneralPane(
                 language: appLanguageBinding,
                 launchAtLogin: settingsBinding(\.launchAtLogin),
@@ -391,11 +391,6 @@ Clipboard watching is off by default. When enabled, Daisy reads clipboard text l
                         .textSelection(.enabled)
                 }
             }
-            AboutPane(
-                title: L("About"),
-                tagline: L("A minimal native Swift desktop translator for macOS"),
-                copyright: L("© 2026 Leafiy")
-            )
         }
     }
 
@@ -886,7 +881,6 @@ struct DaisyMenuBarMenu: View {
         Toggle(L("Auto Copy"), isOn: settingsBinding(\.autoCopy))
         Toggle(L("Auto Paste"), isOn: settingsBinding(\.autoPaste))
         Text(String(format: L("Shortcut: %@"), shortcutDisplay))
-        LeafiyMenuTail(language: model.settings.selectedAppLanguage)
     }
 
     private var shortcutDisplay: String {
@@ -953,15 +947,8 @@ struct DaisyCommands: Commands {
 struct DaisyMenuBarLabel: View {
     @ObservedObject var model: DaisyModel
 
-    private static let baseIcon = LeafiyMenuBarIconRenderer.baseIcon(
-        NSImage.daisyIcon(),
-        symbolFallback: "character.bubble",
-        accessibilityDescription: "Daisy"
-    )
-
     var body: some View {
-        Image(nsImage: LeafiyMenuBarIconRenderer.image(base: Self.baseIcon, status: menuBarStatus))
-        .accessibilityLabel(Text(verbatim: "Daisy"))
+        LeafiyMenuBarLabel(status: menuBarStatus)
     }
 
     private var menuBarStatus: LeafiyMenuBarStatus {

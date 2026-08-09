@@ -49,15 +49,13 @@ struct DaisyApp: App {
     }
 
     var body: some Scene {
-        Window("Daisy", id: "main") {
+        Window(LeafiyAppIdentity.current.name, id: "main") {
             TranslatorView(
                 model: appDelegate.model,
                 appleTranslationBridge: appDelegate.appleTranslationService.bridgeView()
             )
-            .background {
-                LeafiyWindowAccessor { window in
-                    appDelegate.registerMainWindow(window)
-                }
+            .leafiyWindow(id: "main", role: .primary) { window in
+                appDelegate.resolveMainWindow(window)
             }
             .onAppear {
                 appDelegate.applyWindowBehavior()
@@ -78,10 +76,12 @@ struct DaisyApp: App {
                     appDelegate.copyHistoryText(text)
                 }
             )
-            .background {
-                LeafiyWindowAccessor { window in
-                    appDelegate.registerHistoryWindow(window)
-                }
+            .leafiyWindow(
+                id: "translation-history",
+                role: .auxiliary,
+                title: L("Translation History")
+            ) { window in
+                appDelegate.resolveHistoryWindow(window)
             }
         }
         .defaultSize(width: 620, height: 560)
@@ -93,8 +93,9 @@ struct DaisyApp: App {
         }
 
         MenuBarExtra {
-            DaisyMenuBarMenu(model: appDelegate.model, appDelegate: appDelegate)
-                .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
+            LeafiyFamilyMenu(language: appDelegate.model.settings.selectedAppLanguage) {
+                DaisyMenuBarMenu(model: appDelegate.model, appDelegate: appDelegate)
+            }
         } label: {
             DaisyMenuBarLabel(model: appDelegate.model)
                 .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
@@ -104,7 +105,7 @@ struct DaisyApp: App {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: LeafiyAppDelegate {
     let model = DaisyModel()
     let appleTranslationService = AppleSystemTranslationService()
 
@@ -132,9 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case toggleAlwaysOnTop = 3
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        LeafiyApplicationMode.enforceStandard()
-        SoftwareUpdateController.shared.startAutomaticCheck()
+    override func leafiyApplicationDidFinishLaunching(_ notification: Notification) {
         let shouldShowOnboarding = !settingsStore.hasSavedSettings
         let loadedSettings = settingsStore.load()
         LeafiyLocalization.language = loadedSettings.selectedAppLanguage
@@ -155,14 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    override func leafiyApplicationWillTerminate(_ notification: Notification) {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
         hotKeyCenter.unregisterAll()
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
     }
 
     /// The Apple-translation bridge inside TranslatorView dies with the main
@@ -189,11 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.ignoresCycle, .stationary]
         window.contentView = hostingView
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
-        LeafiyWindowRegistry.register(
-            window,
-            id: "translation-bridge-host",
-            role: .internalHost
-        )
+        LeafiyWindowRegistry.registerInternalHost(window, id: "translation-bridge-host")
         translationBridgeHostWindow = window
     }
 
@@ -221,23 +212,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LeafiyWindowPresenter.presentWhenAvailable { self.historyWindow }
     }
 
-    func registerMainWindow(_ window: NSWindow) {
+    func resolveMainWindow(_ window: NSWindow) {
         mainWindow = window
-        LeafiyWindowRegistry.register(window, id: "main", role: .primary, title: "Daisy")
     }
 
-    func registerHistoryWindow(_ window: NSWindow) {
+    func resolveHistoryWindow(_ window: NSWindow) {
         historyWindow = window
         // The scene title is created before an in-app language change can
         // rebuild the App value. Refresh it whenever SwiftUI updates the
         // accessor so the title follows the rest of the localized content.
         window.title = L("Translation History")
-        LeafiyWindowRegistry.register(
-            window,
-            id: "translation-history",
-            role: .auxiliary,
-            title: L("Translation History")
-        )
     }
 
     func copyHistoryText(_ text: String) {
