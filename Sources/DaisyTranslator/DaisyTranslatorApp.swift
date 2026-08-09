@@ -120,7 +120,6 @@ final class AppDelegate: LeafiyAppDelegate {
     private var lastClipboardText = ""
     private var clipboardShortcutTask: Task<Void, Never>?
     private var isClipboardWatcherPaused = false
-    private var translationBridgeHostWindow: NSWindow?
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
     private var windowKeyObservers: [NSObjectProtocol] = []
@@ -143,7 +142,6 @@ final class AppDelegate: LeafiyAppDelegate {
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
-        installTranslationBridgeHost()
         updateClipboardWatcher()
         registerHotKeys()
         prepareAppleSystemTranslationIfNeeded()
@@ -158,34 +156,6 @@ final class AppDelegate: LeafiyAppDelegate {
         clipboardTimer?.invalidate()
         clipboardShortcutTask?.cancel()
         hotKeyCenter.unregisterAll()
-    }
-
-    /// The Apple-translation bridge inside TranslatorView dies with the main
-    /// window when the user closes it (the SwiftUI Window scene tears down
-    /// its content), which would stall menu-bar/hotkey quick translation on
-    /// the Apple provider until the window reopens. This un-ordered internal
-    /// host owns a second bridge view sharing the same serialized request
-    /// model; the model's take-once guard keeps the two hosts from
-    /// double-running a request. It must never be ordered, because capture
-    /// tools otherwise mistake the transparent 1x1 surface for Daisy's UI.
-    private func installTranslationBridgeHost() {
-        let hostingView = NSHostingView(rootView: appleTranslationService.bridgeView())
-        hostingView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.alphaValue = 0
-        window.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
-        window.collectionBehavior = [.ignoresCycle, .stationary]
-        window.contentView = hostingView
-        window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
-        LeafiyWindowRegistry.registerInternalHost(window, id: "translation-bridge-host")
-        translationBridgeHostWindow = window
     }
 
     var isMainWindowVisible: Bool {
@@ -214,6 +184,18 @@ final class AppDelegate: LeafiyAppDelegate {
 
     func resolveMainWindow(_ window: NSWindow) {
         mainWindow = window
+        window.isReleasedWhenClosed = false
+        if let closeButton = window.standardWindowButton(.closeButton) {
+            closeButton.target = self
+            closeButton.action = #selector(hideMainWindow(_:))
+        }
+    }
+
+    /// Keep the main SwiftUI scene alive while the resident utility is hidden.
+    /// Its Apple Translation bridge can then serve menu-bar and hotkey actions
+    /// without creating a second, capture-visible WindowServer surface.
+    @objc private func hideMainWindow(_ sender: Any?) {
+        mainWindow?.orderOut(nil)
     }
 
     func resolveHistoryWindow(_ window: NSWindow) {

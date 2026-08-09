@@ -33,6 +33,8 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
 	<key>LeafiyMenuBarIconFile</key>
 	<string>daisy.png</string>
 	<key>LeafiyUpdateFeedURL</key>
