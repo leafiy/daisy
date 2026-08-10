@@ -235,7 +235,7 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertEqual(settings.model, "")
         XCTAssertFalse(settings.alwaysOnTop)
         XCTAssertFalse(settings.launchAtLogin)
-        XCTAssertTrue(settings.showDockIcon)
+        XCTAssertEqual(settings.applicationIconMode, .menuBar)
         XCTAssertEqual(ModelProvider.appleSystem.rawValue, "apple-system")
     }
 
@@ -298,24 +298,30 @@ final class TranslationCoreTests: XCTestCase {
         XCTAssertTrue(enabledMinimalMode.minimalMode)
     }
 
-    func testAppSettingsCodableDefaultsMissingLaunchAtLoginAndDockIconAndPreservesValues() throws {
+    func testAppSettingsCodableDefaultsMissingLaunchAtLoginAndIconModeAndPreservesValues() throws {
         let missingSettings = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         XCTAssertFalse(missingSettings.launchAtLogin)
-        XCTAssertTrue(missingSettings.showDockIcon)
+        XCTAssertEqual(missingSettings.applicationIconMode, .menuBar)
 
         let explicitSettings = try JSONDecoder().decode(
             AppSettings.self,
-            from: Data(#"{"launchAtLogin":true,"showDockIcon":false}"#.utf8)
+            from: Data(#"{"launchAtLogin":true,"applicationIconMode":"dock"}"#.utf8)
         )
         XCTAssertTrue(explicitSettings.launchAtLogin)
-        XCTAssertFalse(explicitSettings.showDockIcon)
+        XCTAssertEqual(explicitSettings.applicationIconMode, .dock)
 
         let roundTripped = try JSONDecoder().decode(
             AppSettings.self,
             from: JSONEncoder().encode(explicitSettings)
         )
         XCTAssertTrue(roundTripped.launchAtLogin)
-        XCTAssertFalse(roundTripped.showDockIcon)
+        XCTAssertEqual(roundTripped.applicationIconMode, .dock)
+
+        let legacySettings = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"showDockIcon":true}"#.utf8)
+        )
+        XCTAssertEqual(legacySettings.applicationIconMode, .menuBar)
     }
 
     func testAppSettingsDecodingDefaultsMissingQuickTranslateAutoCopyToTrueAndReadsExplicitFalse() throws {

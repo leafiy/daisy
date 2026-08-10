@@ -367,6 +367,7 @@ struct DaisySettingsView: View {
             LeafiyGeneralPane(
                 language: appLanguageBinding,
                 launchAtLogin: settingsBinding(\.launchAtLogin),
+                applicationIconMode: settingsBinding(\.applicationIconMode),
                 tail: {
                     ProviderConfigurationForm(model: model)
                     providerHint

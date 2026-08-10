@@ -92,7 +92,7 @@ struct DaisyApp: App {
                 .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
 
-        MenuBarExtra {
+        LeafiyMenuBarExtra {
             LeafiyFamilyMenu(language: appDelegate.model.settings.selectedAppLanguage) {
                 DaisyMenuBarMenu(model: appDelegate.model, appDelegate: appDelegate)
             }
@@ -100,7 +100,6 @@ struct DaisyApp: App {
             DaisyMenuBarLabel(model: appDelegate.model)
                 .id(appDelegate.model.settings.selectedAppLanguage.rawValue)
         }
-        .menuBarExtraStyle(.menu)
     }
 }
 
@@ -139,6 +138,7 @@ final class AppDelegate: LeafiyAppDelegate {
         model.statusText = L("Ready")
         model.replaceSettings(loadedSettings)
         LeafiyLaunchAtLogin.setEnabled(loadedSettings.launchAtLogin)
+        LeafiyApplicationPresentation.shared.apply(loadedSettings.applicationIconMode)
         configureModelCallbacks()
         configureQuickTranslatePopup()
         installWindowKeyObservers()
@@ -426,6 +426,7 @@ final class AppDelegate: LeafiyAppDelegate {
             try settingsStore.save(normalizedSettings)
             LeafiyLocalization.language = normalizedSettings.selectedAppLanguage
             LeafiyLaunchAtLogin.setEnabled(normalizedSettings.launchAtLogin)
+            LeafiyApplicationPresentation.shared.apply(normalizedSettings.applicationIconMode)
             applyWindowBehavior()
             updateClipboardWatcher()
             registerHotKeys()

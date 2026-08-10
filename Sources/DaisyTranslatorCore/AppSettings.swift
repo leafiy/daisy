@@ -67,7 +67,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
     public var onboardingCompleted: Bool
     public var appLanguage: String
     public var launchAtLogin: Bool
-    public var showDockIcon: Bool
+    public var applicationIconMode: LeafiyApplicationIconMode
 
     public init(
         baseURL: String,
@@ -96,14 +96,14 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         onboardingCompleted: Bool = false,
         appLanguage: String = "system",
         launchAtLogin: Bool = false,
-        showDockIcon: Bool = true
+        applicationIconMode: LeafiyApplicationIconMode = .menuBar
     ) {
         self.provider = provider
         self.targetLanguage = targetLanguage
         self.onboardingCompleted = onboardingCompleted
         self.appLanguage = appLanguage
         self.launchAtLogin = launchAtLogin
-        self.showDockIcon = showDockIcon
+        self.applicationIconMode = applicationIconMode
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
@@ -164,7 +164,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
             targetLanguage: TargetLanguage(rawValue: environment["TT_TARGET_LANGUAGE"] ?? "") ?? .auto,
             appLanguage: "system",
             launchAtLogin: false,
-            showDockIcon: true
+            applicationIconMode: .menuBar
         )
     }
 
@@ -231,7 +231,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
             onboardingCompleted: onboardingCompleted,
             appLanguage: appLanguage,
             launchAtLogin: launchAtLogin,
-            showDockIcon: showDockIcon
+            applicationIconMode: applicationIconMode
         )
         if AppLanguage(rawValue: normalized.appLanguage) == nil {
             normalized.appLanguage = AppLanguage.system.rawValue
@@ -430,7 +430,7 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         case onboardingCompleted
         case appLanguage
         case launchAtLogin
-        case showDockIcon
+        case applicationIconMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -489,6 +489,9 @@ public struct AppSettings: Codable, Equatable, LeafiyAppSettings {
         onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? defaults.onboardingCompleted
         appLanguage = try container.decodeIfPresent(String.self, forKey: .appLanguage) ?? "system"
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
-        showDockIcon = try container.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? defaults.showDockIcon
+        applicationIconMode = try container.decodeIfPresent(
+            LeafiyApplicationIconMode.self,
+            forKey: .applicationIconMode
+        ) ?? defaults.applicationIconMode
     }
 }

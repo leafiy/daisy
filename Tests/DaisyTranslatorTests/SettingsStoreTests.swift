@@ -16,7 +16,7 @@ final class SettingsStoreTests: XCTestCase {
         settings.apiKey = "active-provider-key"
         settings.providerConfigurations[ModelProvider.deepSeek.rawValue]?.apiKey = "active-provider-key"
         settings.providerConfigurations[ModelProvider.openAICompatible.rawValue]?.apiKey = "other-provider-key"
-        settings.showDockIcon = false
+        settings.applicationIconMode = .dock
 
         try store.save(settings)
 
@@ -28,7 +28,7 @@ final class SettingsStoreTests: XCTestCase {
         let openAI = try XCTUnwrap(configurations[ModelProvider.openAICompatible.rawValue] as? [String: Any])
         XCTAssertEqual(deepSeek["apiKey"] as? String, "active-provider-key")
         XCTAssertEqual(openAI["apiKey"] as? String, "other-provider-key")
-        XCTAssertEqual(payload["showDockIcon"] as? Bool, false)
+        XCTAssertEqual(payload["applicationIconMode"] as? String, "dock")
         let text = try String(contentsOf: fileURL, encoding: .utf8)
         XCTAssertTrue(text.hasPrefix("{\n  \"alwaysOnTop\" : false,\n  \"apiKey\" : \"active-provider-key\""))
         XCTAssertTrue(text.contains("\n  \"providerConfigurations\" : {"))
@@ -39,7 +39,7 @@ final class SettingsStoreTests: XCTestCase {
             loaded.providerConfigurations[ModelProvider.openAICompatible.rawValue]?.apiKey,
             "other-provider-key"
         )
-        XCTAssertFalse(loaded.showDockIcon)
+        XCTAssertEqual(loaded.applicationIconMode, .dock)
     }
 
     func testLoadMergesProviderDefaultsAndLegacyProviderFields() throws {
@@ -63,6 +63,6 @@ final class SettingsStoreTests: XCTestCase {
             loaded.providerConfigurations[ModelProvider.deepSeek.rawValue]?.apiKey,
             "legacy-key"
         )
-        XCTAssertTrue(loaded.showDockIcon)
+        XCTAssertEqual(loaded.applicationIconMode, .menuBar)
     }
 }
