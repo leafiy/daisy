@@ -856,7 +856,7 @@ struct DaisyMenuBarMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(appDelegate.shouldHideMainWindow ? L("Hide Window") : L("Show Window")) {
+        Button(appDelegate.mainWindowMenuTitle) {
             appDelegate.toggleMainWindow(openWindow: openWindow)
         }
         Button(L("Paste Current Translation")) {

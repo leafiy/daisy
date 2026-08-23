@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Foundation
 import SwiftUI
 import DaisyTranslatorCore
@@ -125,6 +126,11 @@ final class AppDelegate: LeafiyAppDelegate {
     private var windowBackdrop: NSVisualEffectView?
     private weak var mainWindow: NSWindow?
     private weak var historyWindow: NSWindow?
+    enum MainWindowMenuAction: Equatable {
+        case show
+        case hide
+        case toggle
+    }
 
     private enum HotKeyID: UInt32 {
         case quickTranslateSelection = 2
@@ -158,33 +164,88 @@ final class AppDelegate: LeafiyAppDelegate {
         hotKeyCenter.unregisterAll()
     }
 
-    var shouldHideMainWindow: Bool {
-        guard let window = findMainWindow() else { return false }
-        return Self.shouldHideMainWindow(
+    var mainWindowMenuTitle: String {
+        switch mainWindowMenuAction {
+        case .show:
+            L("Show Window")
+        case .hide:
+            L("Hide Window")
+        case .toggle:
+            L("Show/Hide Window")
+        }
+    }
+
+    private var mainWindowMenuAction: MainWindowMenuAction {
+        guard let window = findMainWindow() else { return .show }
+        let alwaysOnTop = model.settings.alwaysOnTop
+        let isFrontmost = window.isVisible && !alwaysOnTop
+            ? Self.isFrontmostNormalWindow(window)
+            : nil
+        return Self.mainWindowMenuAction(
             isVisible: window.isVisible,
-            isKeyWindow: window.isKeyWindow,
-            alwaysOnTop: model.settings.alwaysOnTop
+            alwaysOnTop: alwaysOnTop,
+            isFrontmost: isFrontmost
         )
     }
 
-    static func shouldHideMainWindow(
+    static func mainWindowMenuAction(
         isVisible: Bool,
-        isKeyWindow: Bool,
-        alwaysOnTop: Bool
-    ) -> Bool {
-        isVisible && (alwaysOnTop || isKeyWindow)
+        alwaysOnTop: Bool,
+        isFrontmost: Bool?
+    ) -> MainWindowMenuAction {
+        guard isVisible else { return .show }
+        guard !alwaysOnTop else { return .hide }
+        guard let isFrontmost else { return .toggle }
+        return isFrontmost ? .hide : .show
+    }
+
+    private static func isFrontmostNormalWindow(_ window: NSWindow) -> Bool? {
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return nil
+        }
+
+        var hasNormalWindowAbove = false
+        for info in windows {
+            guard let number = info[kCGWindowNumber as String] as? NSNumber else { continue }
+            if number.intValue == window.windowNumber {
+                return !hasNormalWindowAbove
+            }
+            guard
+                let layer = info[kCGWindowLayer as String] as? NSNumber,
+                layer.intValue == NSWindow.Level.normal.rawValue
+            else {
+                continue
+            }
+            let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+            hasNormalWindowAbove = hasNormalWindowAbove || alpha > 0
+        }
+        return nil
     }
 
     func toggleMainWindow(openWindow: OpenWindowAction) {
-        if shouldHideMainWindow {
+        switch mainWindowMenuAction {
+        case .hide:
             findMainWindow()?.orderOut(nil)
-        } else {
-            openWindow(id: "main")
-            LeafiyWindowPresenter.presentWhenAvailable {
-                guard let window = self.findMainWindow() else { return nil }
-                self.applyWindowBehavior()
-                return window
+        case .show:
+            showMainWindow(openWindow: openWindow)
+        case .toggle:
+            if let window = findMainWindow(), window.isVisible {
+                window.orderOut(nil)
+            } else {
+                showMainWindow(openWindow: openWindow)
             }
+        }
+    }
+
+    private func showMainWindow(openWindow: OpenWindowAction) {
+        openWindow(id: "main")
+        LeafiyWindowPresenter.presentWhenAvailable {
+            guard let window = self.findMainWindow() else { return nil }
+            self.applyWindowBehavior()
+            return window
         }
     }
 

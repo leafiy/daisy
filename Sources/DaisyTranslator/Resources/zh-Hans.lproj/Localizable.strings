@@ -100,6 +100,7 @@
 "Shortcut" = "快捷键";
 "Shortcut: %@" = "快捷键：%@";
 "Show Window" = "显示窗口";
+"Show/Hide Window" = "显示/隐藏窗口";
 "Source input" = "原文输入框";
 "Source" = "原文";
 "System translation timed out. Try again later." = "系统翻译超时，请稍后重试";

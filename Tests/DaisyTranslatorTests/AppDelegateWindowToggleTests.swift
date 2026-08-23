@@ -3,32 +3,40 @@ import XCTest
 
 @MainActor
 final class AppDelegateWindowToggleTests: XCTestCase {
-    func testUnpinnedWindowOnlyHidesWhenVisibleAndKey() {
-        XCTAssertFalse(AppDelegate.shouldHideMainWindow(
+    func testUnpinnedWindowUsesActualWindowOrder() {
+        XCTAssertEqual(AppDelegate.mainWindowMenuAction(
             isVisible: true,
-            isKeyWindow: false,
-            alwaysOnTop: false
-        ))
-        XCTAssertTrue(AppDelegate.shouldHideMainWindow(
+            alwaysOnTop: false,
+            isFrontmost: false
+        ), .show)
+        XCTAssertEqual(AppDelegate.mainWindowMenuAction(
             isVisible: true,
-            isKeyWindow: true,
-            alwaysOnTop: false
-        ))
+            alwaysOnTop: false,
+            isFrontmost: true
+        ), .hide)
     }
 
-    func testPinnedVisibleWindowHidesEvenWhenNotKey() {
-        XCTAssertTrue(AppDelegate.shouldHideMainWindow(
+    func testPinnedVisibleWindowHidesRegardlessOfWindowOrder() {
+        XCTAssertEqual(AppDelegate.mainWindowMenuAction(
             isVisible: true,
-            isKeyWindow: false,
-            alwaysOnTop: true
-        ))
+            alwaysOnTop: true,
+            isFrontmost: false
+        ), .hide)
     }
 
     func testHiddenWindowAlwaysShows() {
-        XCTAssertFalse(AppDelegate.shouldHideMainWindow(
+        XCTAssertEqual(AppDelegate.mainWindowMenuAction(
             isVisible: false,
-            isKeyWindow: true,
-            alwaysOnTop: true
-        ))
+            alwaysOnTop: true,
+            isFrontmost: true
+        ), .show)
+    }
+
+    func testUnavailableWindowOrderUsesNeutralToggleAction() {
+        XCTAssertEqual(AppDelegate.mainWindowMenuAction(
+            isVisible: true,
+            alwaysOnTop: false,
+            isFrontmost: nil
+        ), .toggle)
     }
 }
