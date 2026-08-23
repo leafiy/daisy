@@ -158,13 +158,26 @@ final class AppDelegate: LeafiyAppDelegate {
         hotKeyCenter.unregisterAll()
     }
 
-    var isMainWindowVisible: Bool {
-        findMainWindow()?.isVisible == true
+    var shouldHideMainWindow: Bool {
+        guard let window = findMainWindow() else { return false }
+        return Self.shouldHideMainWindow(
+            isVisible: window.isVisible,
+            isKeyWindow: window.isKeyWindow,
+            alwaysOnTop: model.settings.alwaysOnTop
+        )
+    }
+
+    static func shouldHideMainWindow(
+        isVisible: Bool,
+        isKeyWindow: Bool,
+        alwaysOnTop: Bool
+    ) -> Bool {
+        isVisible && (alwaysOnTop || isKeyWindow)
     }
 
     func toggleMainWindow(openWindow: OpenWindowAction) {
-        if let window = findMainWindow(), window.isVisible {
-            window.orderOut(nil)
+        if shouldHideMainWindow {
+            findMainWindow()?.orderOut(nil)
         } else {
             openWindow(id: "main")
             LeafiyWindowPresenter.presentWhenAvailable {
