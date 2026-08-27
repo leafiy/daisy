@@ -123,7 +123,7 @@ final class AppDelegate: LeafiyAppDelegate {
     private var savedStandardFrame: NSRect?
     private var appliedMinimalLayout: Bool?
     private var windowKeyObservers: [NSObjectProtocol] = []
-    private var windowBackdrop: NSVisualEffectView?
+    private var windowBackdrop: NSVisualEffectView? // leafiy-exception: daisy minimal-mode window backdrop, registered Explicit Exception (ADR-0003)
     private weak var mainWindow: NSWindow?
     private weak var historyWindow: NSWindow?
     enum MainWindowMenuAction: Equatable {
@@ -435,11 +435,11 @@ final class AppDelegate: LeafiyAppDelegate {
     /// SwiftUI layer draws over it. SwiftUI replaces the content view on
     /// some rebuilds, hence the re-parent check rather than a one-shot
     /// install.
-    private func ensureWindowBackdrop(in window: NSWindow) -> NSVisualEffectView? {
+    private func ensureWindowBackdrop(in window: NSWindow) -> NSVisualEffectView? { // leafiy-exception: daisy minimal-mode window backdrop, registered Explicit Exception (ADR-0003)
         guard let content = window.contentView else { return nil }
         if let backdrop = windowBackdrop, backdrop.superview == content { return backdrop }
         windowBackdrop?.removeFromSuperview()
-        let backdrop = NSVisualEffectView(frame: content.bounds)
+        let backdrop = NSVisualEffectView(frame: content.bounds) // leafiy-exception: daisy minimal-mode window backdrop, registered Explicit Exception (ADR-0003)
         backdrop.material = .underWindowBackground
         backdrop.blendingMode = .behindWindow
         backdrop.state = .inactive
@@ -672,7 +672,7 @@ final class AppDelegate: LeafiyAppDelegate {
             return true
         }
 
-        let alert = NSAlert()
+        let alert = NSAlert() // leafiy-gap: LeafiyAlert
         alert.messageText = L("Allow Daisy to control the keyboard")
         alert.informativeText = L("Translate Selection needs to send Cmd+C to read selected text, and auto paste needs to send Cmd+V. Both require macOS Accessibility permission.\n\nIf Daisy is already enabled in the list but this prompt still appears, the authorization was invalidated by rebuilding the app. Remove Daisy from the Accessibility list with “−”, then add it again.")
         alert.alertStyle = .informational
